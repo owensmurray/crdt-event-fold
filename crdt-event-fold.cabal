@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                crdt-event-fold
-version:             0.1.0.0
+version:             1.0.0.0
 synopsis:            Garbage collected event folding CRDT.
 description:         Garbage collected event folding CRDT.
 homepage:            https://github.com/owensmurray/crdt-event-fold

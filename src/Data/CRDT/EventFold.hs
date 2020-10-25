@@ -22,25 +22,59 @@
   can be returned immediately and possibly reflect an inconsistent state.
 -}
 module Data.CRDT.EventFold (
-  EventFoldF,
-  EventFold,
-  Event(..),
-  EventResult(..),
-  EventId,
-  MergeError(..),
-  EventPack,
-
+  -- * Basic API
+  -- ** Creating new CRDTs.
   new,
+
+  -- ** Adding new events.
   event,
+
+  -- ** Coordinating replica updates.
+  {- |
+    Functions in this section are used to help merge foreign copies of
+    the CRDT, and transmit our own copy. (This library does not provide
+    any kind of transport support, except that all the relevant types
+    have 'Binary' instances. Actually arranging for these things to get
+    shipped across a wire is left to the user.)
+
+    In principal, the only two functions you need are 'fullMerge' and
+    'acknowledge'. You can ship the full 'EventFold' value to a remote
+    participant and it can incorporate any changes using 'fullMerge',
+    and vice versa. You can receive an 'EventFold' value from another
+    participant and incorporate its changes locally using 'fullMerge'. You
+    can then acknowledge the incorporation using 'acknowledge'.
+
+    However, if your underlying data structure is large, it may be more
+    efficient to just ship a sort of diff containing the information
+    that the local participant thinks the remote participant might be
+    missing. That is what 'events', 'mergeMaybe', and 'mergeEither'
+    are for.
+
+    Calling 'acknowledge' is important because that is the magic that
+    allows CRDT garbage collection to happen. "CRDT garbage collection"
+    means we don't store an infinite series of events that always grows
+    and never shrinks. We only store the outstanding events that we
+    can't prove have been seen by every participant. Events that we /can/
+    prove have been seen by every participant are applied to the infimum
+    (a.k.a. "base value") and the event itself is discarded.
+    
+  -}
+  fullMerge,
+  acknowledge,
+  events,
   mergeMaybe,
   mergeEither,
-  acknowledge,
-  fullMerge,
+  MergeError(..),
 
+  -- ** Participation.
   participate,
   disassociate,
 
-  events,
+  -- ** Defining your state and events.
+  Event(..),
+  EventResult(..),
+
+  -- * Inspecting the 'EventFold'.
   isBlockedOnError,
   projectedValue,
   infimumValue,
@@ -48,8 +82,15 @@ module Data.CRDT.EventFold (
   infimumParticipants,
   allParticipants,
   projParticipants,
-  divergent,
   origin,
+  divergent,
+
+  -- * Underlying Types
+  EventFoldF,
+  EventFold,
+  EventId,
+  EventPack,
+
 ) where
 
 
@@ -100,12 +141,11 @@ data EventFoldF o p e f = EventFold {
      psEvents :: Map (EventId p) (f (Delta p e), Set p)
   } deriving stock (Generic)
 deriving stock instance
-    (
-      Eq (f (Delta p e)),
-      Eq o,
-      Eq p,
-      Eq e,
-      Eq (Output e)
+    ( Eq (f (Delta p e))
+    , Eq (Output e)
+    , Eq o
+    , Eq p
+    , Eq e
     )
   =>
     Eq (EventFoldF o p e f)
@@ -150,8 +190,8 @@ instance (Ord p) => Ord (Infimum s p) where
 
 {- |
   `EventId` is a monotonically increasing, totally ordered identification
-  value which allows us to lend the attribute of monotonicity to state
-  operations which would not naturally be monotonic.
+  value which allows us to lend the attribute of monotonicity to event
+  application operations which would not naturally be monotonic.
 -}
 data EventId p
   = BottomEid
@@ -176,7 +216,7 @@ instance Default (EventId p) where
 
 {- |
   This is the exception type for illegal merges. These errors indicate
-  a serious violation of the contract, and probably indicate serious bugs.
+  a serious programming bugs.
 -}
 data MergeError o p e
   = DifferentOrigins o o
@@ -188,12 +228,12 @@ data MergeError o p e
   | EventPackTooNew (EventFold o p e) (EventPack o p e)
     {- ^
       The 'EventPack''s infimum is greater than any event known to
-      'EventFold' into which it is being merged. This should be
-      impossible and indicates that either the local 'EventFold' has
-      rolled back an event that it had previously acknowledged, or else
-      the source of the 'EventPack' moved the infimum forward without
-      a full acknowledgement from all peers. Both of these conditions
-      should be regarded as serious bugs.
+      'EventFold' into which it is being merged. This should be impossible
+      and indicates that either the local 'EventFold' has rolled back an
+      event that it had previously acknowledged, or else the source of the
+      'EventPack' moved the infimum forward without a full acknowledgement
+      from all participants. Both of these conditions should be regarded
+      as serious bugs.
     -}
   | EventPackTooSparse (EventFold o p e) (EventPack o p e)
     {- ^
@@ -226,7 +266,15 @@ deriving stock instance (Show p, Show e, Show (Output e)) => Show (Delta p e)
 instance (Binary p, Binary e, Binary (Output e)) => Binary (Delta p e)
 
 
-{- | The class which allows for event application. -}
+{- |
+  Instances of this class define the particular "events" being "folded"
+  over in a distributed fashion. In addition to the event type itself,
+  there are a couple of type families which define the 'State' into which
+  folded events are accumulated, and the 'Output' which application of
+  a particular event can generate.
+
+  TL;DR: This is how users define their own custom operations.
+-}
 class Event e where
   type Output e
   type State e
@@ -269,22 +317,30 @@ instance (Event a, Event b) => Event (Either a b) where
   simultaneously. What happens if the computation of the event runs out
   of memory on one machine, but not on another?
 
-  We have a strategy for dealing with these problems: if the computation of
-  an event experiences a failure on every node, then the event is pushed
-  into the infimum as a failure (i.e. a no-op), but if any single node
-  successfully computes the event then all other nodes will request a
-  "Full Merge" from the successful node. The Full Merge will include the
-  infimum __value__ computed by the successful node, which will include
-  the successful application of the problematic event. The error nodes can
-  thus bypass computation of the problem event altogether, and can simply
+  There exists a strategy for dealing with these problems: if the
+  computation of an event experiences a failure on every participant, then
+  the event is pushed into the infimum as a failure (i.e. a no-op), but if
+  any single participant successfully computes the event then all other
+  participants can (somehow) request a "Full Merge" from the successful
+  participant. The Full Merge will include the infimum __value__ computed
+  by the successful participant, which will include the successful
+  application of the problematic event. The error participants can thus
+  bypass computation of the problem event altogether, and can simply
   overwrite their infimum with the infimum provided by the Full Merge.
 
-  Doing a full merge is much more expensive than doing a simple
+  Doing a full merge can be much more expensive than doing a simple
   'EventPack' merge, because it requires transmitting the full value of
   the 'EventFold' instead of just the outstanding operations.
 
   This type represents how computation of the event finished; with either a
   pure result, or some kind of system error.
+
+  In general 'SystemError' is probably only ever useful for when your
+  event type somehow executes untrusted code (for instance when your event
+  type is a Turing-complete DSL that allows users to submit their own
+  custom-programmed "events") and you want to limit the resources that can
+  be consumed by such user-generated code.  It is much less useful when
+  you are encoding some well defined business logic directly in Haskell.
 -}
 data EventResult e
   = SystemError (Output e)
@@ -293,9 +349,13 @@ data EventResult e
 
 {- |
   Construct a new 'EventFold' with the given origin and initial
-  participants.
+  participant.
 -}
-new :: (Default (State e), Ord p) => o -> Set p -> EventFoldF o p e f
+new
+  :: (Default (State e), Ord p)
+  => o {- ^ The "origin", iditifying the historical lineage of this CRDT. -}
+  -> Set p {- ^ The initial participants. -}
+  -> EventFoldF o p e f
 new o participants =
   EventFold {
       psOrigin = o,
@@ -309,8 +369,8 @@ new o participants =
 
 
 {- |
-  Get the outstanding events that need to be propagated to a paricular
-  peer.
+  Get the outstanding events that need to be propagated to a particular
+  participant.
 -}
 events :: (Ord p) => p -> EventFold o p e -> EventPack o p e
 events peer ps =
@@ -321,8 +381,8 @@ events peer ps =
     }
   where
     {- |
-      Don't send the event data to peers which have already acknowledged
-      it, saving network and cpu resources.
+      Don't send the event data to participants which have already
+      acknowledged it, saving network and cpu resources.
     -}
     omitAcknowledged (d, acks) =
       (
@@ -357,6 +417,9 @@ instance (
   a lower one. Only 'EventFold's that originated from the same 'new'
   call can be merged. If the origins are mismatched, then 'Nothing'
   is returned.
+
+  Returns the new 'EventFold' value, along with the output for all of
+  the events that can now be considered "fully consistent".
 -}
 mergeMaybe :: (Eq o, Event e, Ord p)
   => EventFold o p e
@@ -366,8 +429,8 @@ mergeMaybe ps es = either (const Nothing) Just (mergeEither ps es)
 
 
 {- |
-  Like `mergeMaybe`, but returns a human-decipherable error message of
-  exactly what went wrong.
+  Like `mergeMaybe`, but returns an error indicating exactly what
+  went wrong.
 -}
 mergeEither :: (Eq o, Event e, Ord p)
   => EventFold o p e
@@ -440,6 +503,9 @@ mergeEither orig@(EventFold o infimum d1) ep@(EventPack d2 _ i2) =
 {- |
   Like 'mergeEither', but merge a full 'EventFold' instead of just an
   event pack.
+
+  Returns the new 'EventFold' value, along with the output for all of
+  the events that can now be considered "fully consistent".
 -}
 fullMerge :: (Eq o, Event e, Ord p)
   => EventFold o p e
@@ -459,6 +525,9 @@ fullMerge ps (EventFold o2 i2 d2) =
   Record the fact that the participant acknowledges the information
   contained in the 'EventFold'. The implication is that the participant
   __must__ base all future operations on the result of this function.
+
+  Returns the new 'EventFold' value, along with the output for all of
+  the events that can now be considered "fully consistent".
 -}
 acknowledge :: (Event e, Ord p)
   => p
@@ -552,7 +621,9 @@ disassociate self peer ps@EventFold {psEvents} =
 
 {- |
   Introduce a change to the EventFold on behalf of the participant.
-  Return the new 'EventFold' along with the projected output of the event.
+  Return the new 'EventFold', along with the projected output of the
+  event, along with an 'EventId' which can be used to get the fully
+  consistent event output at a later time.
 -}
 event :: (Ord p, Event e)
   => p
@@ -654,11 +725,11 @@ projParticipants EventFold {
 
 
 {- |
-  Returns the participants that we think might be diverging. In this
-  context, a participant is "diverging" if there is an event that
-  the participant has not acknowledged but we are expecting it to
-  acknowlege. Along with the participant, return the last known `EventId`
-  which that participant has acknowledged.
+  Returns the participants that we think might be diverging. In
+  this context, a participant is "diverging" if there is an event
+  that the participant has not acknowledged but we are expecting it
+  to acknowledge. Along with the participant, return the last known
+  `EventId` which that participant has acknowledged.
 -}
 divergent :: forall o p e. (Ord p) => EventFold o p e -> Map p (EventId p)
 divergent
@@ -766,8 +837,8 @@ reduce
             update <- getUpdate
             let
               {- |
-                Join events must be acknowleged by the joining peer
-                before moving into the infimum.
+                Join events must be acknowledged by the joining
+                participant before moving into the infimum.
               -}
               joining =
                 case update of
@@ -865,7 +936,7 @@ reduce
         | (eid, (fd, acks)) <- Map.toList events_
       ]
 
-    {- | Figure out which nodes have upcomming unjoins. -}
+    {- | Figure out which nodes have upcoming unjoins. -}
     unjoins
       :: EventId p
          {- ^
@@ -910,7 +981,7 @@ nextId p EventFold {psInfimum = Infimum {eventId}, psEvents} =
     Eid ord _ -> Eid (succ ord) p
 
 
-{- | Return 'True' if progress on the 'EventFold' is blocked on an error. -}
+{- | Return 'True' if progress on the 'EventFold' is blocked on a 'SystemError'. -}
 isBlockedOnError :: EventFold o p e -> Bool
 isBlockedOnError ps =
   case Map.minView (psEvents ps) of

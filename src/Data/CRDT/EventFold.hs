@@ -52,25 +52,16 @@ module Data.CRDT.EventFold (
 ) where
 
 
-import Data.Aeson (ToJSONKeyFunction(ToJSONKeyText), ToJSON, ToJSONKey,
-  defaultOptions, encode, genericToEncoding, genericToJSON, toEncoding,
-  toJSON, toJSONKey)
-import Data.Aeson.Encoding (text)
-import Data.Aeson.Types (Options, camelTo2, constructorTagModifier,
-  fieldLabelModifier)
 import Data.Bifunctor (first)
 import Data.Binary (Binary(get, put))
-import Data.Char (isUpper)
 import Data.Default.Class (Default(def))
 import Data.DoubleWord (Word128(Word128), Word256(Word256))
 import Data.Functor.Identity (Identity(Identity), runIdentity)
 import Data.Map (Map, keys, toAscList, toDescList, unionWith)
 import Data.Maybe (catMaybes)
 import Data.Set ((\\), Set, member, union)
-import Data.String (IsString, fromString)
 import Data.Word (Word64)
 import GHC.Generics (Generic)
-import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.Map as Map
 import qualified Data.Map.Merge.Lazy as Map.Merge
 import qualified Data.Set as Set
@@ -119,20 +110,6 @@ deriving instance
     Eq (EventFoldF o p e f)
 instance
     (
-      ToJSON (f (Delta p e)),
-      Show p,
-      ToJSON o,
-      ToJSON p,
-      ToJSON e,
-      ToJSON (State e),
-      ToJSON (Output e)
-    )
-  =>
-    Show (EventFoldF o p e f)
-  where
-    show = BSL8.unpack . encode
-instance
-    (
       Binary (f (Delta p e)),
       Binary o,
       Binary p,
@@ -142,21 +119,13 @@ instance
     )
   =>
     Binary (EventFoldF o p e f)
-instance
-    (
-      ToJSON (f (Delta p e)),
-      ToJSON o,
-      ToJSON p,
-      ToJSON e,
-      ToJSON (State e),
-      ToJSON (Output e),
-      Show p
+deriving instance
+    ( Show (f (Delta p e))
+    , Show o
+    , Show p
+    , Show (State e)
     )
-  =>
-    ToJSON (EventFoldF o p e f)
-  where
-    toJSON = genericToJSON prefixedLispCase
-    toEncoding = genericToEncoding prefixedLispCase
+  => Show (EventFoldF o p e f)
 
 
 type EventFold o p e = EventFoldF o p e Identity
@@ -176,9 +145,6 @@ instance (Eq p) => Eq (Infimum s p) where
   Infimum s1 _ _ == Infimum s2 _ _ = s1 == s2
 instance (Ord p) => Ord (Infimum s p) where
   compare (Infimum s1 _ _) (Infimum s2 _ _) = compare s1 s2
-instance (Show p, ToJSON s, ToJSON p) => ToJSON (Infimum s p) where
-  toJSON = genericToJSON lispCase
-  toEncoding = genericToEncoding lispCase
 
 
 {- |
@@ -190,10 +156,6 @@ data StateId p
   = BottomSid
   | Sid Word256 p
   deriving (Generic, Eq, Ord, Show)
-instance (Show p) => ToJSON (StateId p) where
-  toJSON = toJSON . show
-instance (Show p) => ToJSONKey (StateId p) where
-  toJSONKey = ToJSONKeyText showt (text . showt)
 instance (Binary p) => Binary (StateId p) where
   put = put . toMaybe
     where
@@ -242,14 +204,10 @@ data MergeError o p e
     -}
 deriving instance
     ( Show (Output e)
-    , Show e
     , Show o
     , Show p
-    , ToJSON (Output e)
-    , ToJSON (State e)
-    , ToJSON e
-    , ToJSON o
-    , ToJSON p
+    , Show e
+    , Show (State e)
     )
   =>
     Show (MergeError o p e)
@@ -264,7 +222,6 @@ data Delta p e
   deriving (Generic)
 deriving instance (Eq p, Eq e, Eq (Output e)) => Eq (Delta p e)
 deriving instance (Show p, Show e, Show (Output e)) => Show (Delta p e)
-instance (ToJSON p, ToJSON e, ToJSON (Output e)) => ToJSON (Delta p e)
 instance (Binary p, Binary e, Binary (Output e)) => Binary (Delta p e)
 
 
@@ -387,11 +344,6 @@ deriving instance (
     Show o, Show p, Show e, Show (Output e)
   ) =>
     Show (EventPack o p e)
-instance (Show p, ToJSON o, ToJSON p, ToJSON e, ToJSON (Output e)) =>
-    ToJSON (EventPack o p e)
-  where
-    toJSON = genericToJSON prefixedLispCase
-    toEncoding = genericToEncoding prefixedLispCase
 instance (
     Binary o, Binary p, Binary e, Binary (Output e)
   ) =>
@@ -963,33 +915,5 @@ isBlockedOnError ps =
   case Map.minView (psEvents ps) of
     Just ((Identity (Error _ _), _), _) -> True
     _ -> False
-
-
-{- | Like 'prefixedLispCase', but leave any prefix intact. -}
-lispCase :: Options
-lispCase = defaultOptions {
-    fieldLabelModifier = camelTo2 '-'
-  }
-
-
-{- | Helper for generic JSON definitions. -}
-prefixedLispCase :: Options
-prefixedLispCase =
-    defaultOptions {
-      fieldLabelModifier = camelTo2 '-' . dropPrefix,
-      constructorTagModifier = camelTo2 '-' . dropPrefix
-    } 
-  where
-    {- | Drop a standard prefix record field prefix. -}
-    dropPrefix :: String -> String
-    dropPrefix [] = []
-    dropPrefix (x:xs)
-      | isUpper x = x:xs
-      | otherwise = dropPrefix xs
-
-
-{- | Like 'show', but for any string-like thing. -}
-showt :: (Show a, IsString b) => a -> b
-showt = fromString . show
 
 

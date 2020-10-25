@@ -4,14 +4,15 @@
 name:                crdt-event-fold
 version:             1.0.0.0
 synopsis:            Garbage collected event folding CRDT.
-description:         Garbage collected event folding CRDT.
+description:         Garbage collected event folding CRDT. Consistently
+                     apply arbitrary operations to replicated data.
 homepage:            https://github.com/owensmurray/crdt-event-fold
 license:             MIT
 license-file:        LICENSE
 author:              Rick Owens
 maintainer:          rick@owensmurray.com
 copyright:           2020 Owens Murray, LLC.
--- category:            
+category:            CRDT
 build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10

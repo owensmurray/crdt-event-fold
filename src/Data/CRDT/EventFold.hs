@@ -1,5 +1,5 @@
-
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -7,6 +7,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wmissing-deriving-strategies #-}
 
 {- |
   Description: Garbage collected event folding CRDT.
@@ -97,8 +98,8 @@ data EventFoldF o p e f = EventFold {
      psOrigin :: o,
     psInfimum :: Infimum (State e) p,
      psEvents :: Map (StateId p) (f (Delta p e), Set p)
-  } deriving (Generic)
-deriving instance
+  } deriving stock (Generic)
+deriving stock instance
     (
       Eq (f (Delta p e)),
       Eq o,
@@ -119,7 +120,7 @@ instance
     )
   =>
     Binary (EventFoldF o p e f)
-deriving instance
+deriving stock instance
     ( Show (f (Delta p e))
     , Show o
     , Show p
@@ -139,7 +140,7 @@ data Infimum s p = Infimum {
          stateId :: StateId p,
     participants :: Set p,
       stateValue :: s
-  } deriving (Generic, Show)
+  } deriving stock (Generic, Show)
 instance (Binary s, Binary p) => Binary (Infimum s p)
 instance (Eq p) => Eq (Infimum s p) where
   Infimum s1 _ _ == Infimum s2 _ _ = s1 == s2
@@ -155,7 +156,7 @@ instance (Ord p) => Ord (Infimum s p) where
 data StateId p
   = BottomSid
   | Sid Word256 p
-  deriving (Generic, Eq, Ord, Show)
+  deriving stock (Generic, Eq, Ord, Show)
 instance (Binary p) => Binary (StateId p) where
   put = put . toMaybe
     where
@@ -202,7 +203,7 @@ data MergeError o p e
       previous acknowledged, or else some other participant erroneously
       acknowledged some events on our behalf.
     -}
-deriving instance
+deriving stock instance
     ( Show (Output e)
     , Show o
     , Show p
@@ -219,9 +220,9 @@ data Delta p e
   | UnJoin p
   | Event e
   | Error (Output e) (Set p)
-  deriving (Generic)
-deriving instance (Eq p, Eq e, Eq (Output e)) => Eq (Delta p e)
-deriving instance (Show p, Show e, Show (Output e)) => Show (Delta p e)
+  deriving stock (Generic)
+deriving stock instance (Eq p, Eq e, Eq (Output e)) => Eq (Delta p e)
+deriving stock instance (Show p, Show e, Show (Output e)) => Show (Delta p e)
 instance (Binary p, Binary e, Binary (Output e)) => Binary (Delta p e)
 
 
@@ -339,8 +340,8 @@ data EventPack o p e = EventPack {
      epOrigin :: o,
     epInfimum :: StateId p
   }
-  deriving (Generic)
-deriving instance (
+  deriving stock (Generic)
+deriving stock instance (
     Show o, Show p, Show e, Show (Output e)
   ) =>
     Show (EventPack o p e)

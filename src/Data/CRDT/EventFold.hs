@@ -20,6 +20,53 @@
   produce an output that can be obtained by the client. The output can be
   either totally consistent across all replicas (which is slower), or it
   can be returned immediately and possibly reflect an inconsistent state.
+
+  The 'EventFold' name derives from a loose analogy to folding over a list of
+  events using plain old 'foldl'. The component parts of 'foldl' are:
+
+  - A binary operator, analogous to 'apply'.
+
+  - An accumulator value, analogous to 'infimumValue'.
+
+  - A list of values to fold over, loosely analogous to "the list of
+    all future calls to 'event'".
+
+  - A return value.  There is no real analogy for the "return value".
+    Similarly to how you never actually obtain a return value if you
+    try to 'foldl' over an infinite list, 'EventFold's are meant to be
+    long-lived objects that accommodate an infinite number of calls
+    to 'event'. What you can do is inspect the current value of the
+    accumulator using 'infimumValue', or the "projected" value of the
+    accumulator using 'projectedValue' (where "projected" means "taking
+    into account all of the currently known calls to 'event' that have not
+    yet been folded into the accumulator, and which may yet turn out to to
+    have other events inserted into the middle or beginning of the list").
+
+  The 'EventFold' value itself can be thought of as an intermediate,
+  replicated, current state of the fold of an infinite list of events
+  that has not yet been fully generated.  So you can, for instance,
+  check the current accumulator value.
+
+  In a little more detail, consider the type signature of 'foldl' (for lists).
+
+  > foldl
+  >   :: (b -> a -> b) -- Analogous to 'apply', where 'a' is your 'Event'
+  >                    -- instance, and 'b' is 'State a'.
+  >
+  >   -> b             -- Loosely analogous to 'infimumValue' where
+  >                    -- progressives applications are accumulated. (I
+  >                    -- know that in the type signature of 'foldl'
+  >                    -- this is the "starting value", but imagine that
+  >                    -- for a recursive implementation of 'foldl',
+  >                    -- the child call's "starting value" is the parent
+  >                    -- call's accumulated value.)
+  >
+  >   -> [a]           -- Analogous to all outstanding or future calls to
+  >                    -- 'event'.
+  >
+  >   -> b             
+
+
 -}
 module Data.CRDT.EventFold (
   -- * Basic API

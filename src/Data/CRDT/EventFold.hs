@@ -418,11 +418,11 @@ new o participant =
   participant.
 -}
 events :: (Ord p) => p -> EventFold o p e -> Diff o p e
-events peer ps =
+events peer ef =
     Diff {
-      diffEvents = omitAcknowledged <$> psEvents ps,
-      diffOrigin = psOrigin ps,
-      diffInfimum = eventId (psInfimum ps)
+      diffEvents = omitAcknowledged <$> psEvents ef,
+      diffOrigin = psOrigin ef,
+      diffInfimum = eventId (psInfimum ef)
     }
   where
     {- |
@@ -470,15 +470,15 @@ diffMerge :: (Eq o, Event e, Ord p)
 diffMerge EventFold {psOrigin = o1} Diff {diffOrigin = o2} | o1 /= o2 =
   Left (DifferentOrigins o1 o2)
 
-diffMerge ps pak | tooNew =
-    Left (DiffTooNew ps pak)
+diffMerge ef pak | tooNew =
+    Left (DiffTooNew ef pak)
   where
     maxState =
       maximum
-      . Set.insert (eventId . psInfimum $ ps)
+      . Set.insert (eventId . psInfimum $ ef)
       . Map.keysSet
       . psEvents
-      $ ps
+      $ ef
 
     tooNew :: Bool
     tooNew = maxState < diffInfimum pak
@@ -500,7 +500,7 @@ diffMerge orig@(EventFold o infimum d1) ep@(Diff d2 _ i2) =
         }
     of
       Nothing -> Left (DiffTooSparse orig ep)
-      Just ps -> Right ps
+      Just ef -> Right ef
   where
     mergeAcks :: (Ord p)
       => (Delta p e, Set p)
@@ -542,9 +542,9 @@ fullMerge :: (Eq o, Event e, Ord p)
   => EventFold o p e
   -> EventFold o p e
   -> Either (MergeError o p e) (EventFold o p e, Map (EventId p) (Output e))
-fullMerge ps (EventFold o2 i2 d2) =
+fullMerge ef (EventFold o2 i2 d2) =
   diffMerge
-    ps {psInfimum = max (psInfimum ps) i2}
+    ef {psInfimum = max (psInfimum ef) i2}
     Diff {
       diffOrigin = o2,
       diffEvents = first (Just . runIdentity) <$> d2,
@@ -564,7 +564,7 @@ acknowledge :: (Event e, Ord p)
   => p
   -> EventFold o p e
   -> (EventFold o p e, Map (EventId p) (Output e))
-acknowledge p ps =
+acknowledge p ef =
     {-
       First do a normal reduction, then do a special acknowledgement of the
       reduction error, if any.
@@ -573,8 +573,8 @@ acknowledge p ps =
       (ps2, outputs) =
         runIdentity $
           reduce
-            (eventId (psInfimum ps))
-            ps {psEvents = fmap ackOne (psEvents ps)}
+            (eventId (psInfimum ef))
+            ef {psEvents = fmap ackOne (psEvents ef)}
       (ps3, outputs2) = ackErr p ps2
     in
       (ps3, outputs <> outputs2)
@@ -587,19 +587,19 @@ ackErr :: (Event e, Ord p)
   => p
   -> EventFold o p e
   -> (EventFold o p e, Map (EventId p) (Output e))
-ackErr p ps =
+ackErr p ef =
   runIdentity $
     reduce
-      (eventId (psInfimum ps))
-      ps {
+      (eventId (psInfimum ef))
+      ef {
         psEvents =
-          case Map.minViewWithKey (psEvents ps) of
+          case Map.minViewWithKey (psEvents ef) of
             Just ((eid, (Identity (Error o eacks), acks)), deltas) ->
               Map.insert
                 eid
                 (Identity (Error o (Set.insert p eacks)), acks)
                 deltas
-            _ -> psEvents ps
+            _ -> psEvents ef
       }
 
 
@@ -615,13 +615,13 @@ participate :: (Ord p)
   -> p
   -> EventFold o p e
   -> (EventId p, EventFold o p e)
-participate self peer ps@EventFold {psEvents} =
+participate self peer ef@EventFold {psEvents} =
   let
-    eid = nextId self ps
+    eid = nextId self ef
   in
     (
       eid,
-      ps {
+      ef {
         psEvents =
           Map.insert
             eid
@@ -640,11 +640,11 @@ disassociate :: (Ord p)
   -> p
   -> EventFold o p e
   -> EventFold o p e
-disassociate self peer ps@EventFold {psEvents} =
-  ps {
+disassociate self peer ef@EventFold {psEvents} =
+  ef {
     psEvents =
       Map.insert
-        (nextId self ps)
+        (nextId self ef)
         (Identity (UnJoin peer), mempty)
         psEvents
   }
@@ -661,16 +661,16 @@ event :: (Ord p, Event e)
   -> e
   -> EventFold o p e
   -> (Output e, EventId p, EventFold o p e)
-event p e ps@EventFold {psEvents} =
+event p e ef@EventFold {psEvents} =
   let
-    eid = nextId p ps
+    eid = nextId p ef
   in
     (
-      case apply e (projectedValue ps) of
+      case apply e (projectedValue ef) of
         Pure output _ -> output
         SystemError output -> output,
       eid,
-      ps {
+      ef {
         psEvents =
           Map.insert
             eid
@@ -837,7 +837,7 @@ reduce
   -> f (EventFold o p e, Map (EventId p) (Output e))
 reduce
     infState
-    ps@EventFold {
+    ef@EventFold {
       psInfimum = infimum@Infimum {participants, stateValue},
       psEvents
     }
@@ -847,19 +847,19 @@ reduce
         pure
           (
             EventFold {
-              psOrigin = psOrigin ps,
-              psInfimum = psInfimum ps,
+              psOrigin = psOrigin ef,
+              psInfimum = psInfimum ef,
               psEvents = mempty
             },
             mempty
           )
       Just ((eid, (getUpdate, acks)), newDeltas)
         | eid <= eventId infimum -> {- The event is obsolete. Ignore it. -}
-            reduce infState ps {
+            reduce infState ef {
               psEvents = newDeltas
             }
         | isRenegade eid -> {- This is a renegade event. Ignore it. -}
-            reduce infState ps {
+            reduce infState ef {
               psEvents = newDeltas
             }
         | otherwise -> do
@@ -881,7 +881,7 @@ reduce
               then
                 case update of
                   Join p ->
-                    reduce infState ps {
+                    reduce infState ef {
                       psInfimum = infimum {
                           eventId = eid,
                           participants = Set.insert p participants
@@ -889,7 +889,7 @@ reduce
                       psEvents = newDeltas
                     }
                   UnJoin p ->
-                    reduce infState ps {
+                    reduce infState ef {
                       psInfimum = infimum {
                           eventId = eid,
                           participants = Set.delete p participants
@@ -899,7 +899,7 @@ reduce
                   Error output eacks
                     | Set.null (participants \\ eacks) -> do
                         (ps2, outputs) <-
-                          reduce infState ps {
+                          reduce infState ef {
                             psInfimum = infimum {
                               eventId = eid
                             }
@@ -910,8 +910,8 @@ reduce
                         pure
                           (
                             EventFold {
-                              psOrigin = psOrigin ps,
-                              psInfimum = psInfimum ps,
+                              psOrigin = psOrigin ef,
+                              psInfimum = psInfimum ef,
                               psEvents = events_
                             },
                             mempty
@@ -923,7 +923,7 @@ reduce
                         pure
                           (
                             EventFold {
-                              psOrigin = psOrigin ps,
+                              psOrigin = psOrigin ef,
                               psInfimum = infimum,
                               psEvents =
                                 Map.insert
@@ -935,7 +935,7 @@ reduce
                           )
                       Pure output newState -> do
                         (ps2, outputs) <-
-                          reduce infState ps {
+                          reduce infState ef {
                             psInfimum = infimum {
                                 eventId = eid,
                                 stateValue = newState
@@ -948,8 +948,8 @@ reduce
                 pure
                   (
                     EventFold {
-                      psOrigin = psOrigin ps,
-                      psInfimum = psInfimum ps,
+                      psOrigin = psOrigin ef,
+                      psInfimum = psInfimum ef,
                       psEvents = events_
                     },
                     mempty
@@ -1014,8 +1014,8 @@ nextId p EventFold {psInfimum = Infimum {eventId}, psEvents} =
 
 {- | Return 'True' if progress on the 'EventFold' is blocked on a 'SystemError'. -}
 isBlockedOnError :: EventFold o p e -> Bool
-isBlockedOnError ps =
-  case Map.minView (psEvents ps) of
+isBlockedOnError ef =
+  case Map.minView (psEvents ef) of
     Just ((Identity (Error _ _), _), _) -> True
     _ -> False
 

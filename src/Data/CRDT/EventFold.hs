@@ -94,8 +94,7 @@ module Data.CRDT.EventFold (
     However, if your underlying data structure is large, it may be more
     efficient to just ship a sort of diff containing the information
     that the local participant thinks the remote participant might be
-    missing. That is what 'events', 'mergeMaybe', and 'mergeEither'
-    are for.
+    missing. That is what 'events' and 'mergeEither' are for.
 
     Calling 'acknowledge' is important because that is the magic that
     allows CRDT garbage collection to happen. "CRDT garbage collection"
@@ -109,7 +108,6 @@ module Data.CRDT.EventFold (
   fullMerge,
   acknowledge,
   events,
-  mergeMaybe,
   mergeEither,
   MergeError(..),
 
@@ -459,25 +457,8 @@ instance (
 
 
 {- |
-  Monotonically merge the information in two 'EventFold's.  The resulting
-  'EventFold' may have a higher infimum value, but it will never have
-  a lower one. Only 'EventFold's that originated from the same 'new'
-  call can be merged. If the origins are mismatched, then 'Nothing'
-  is returned.
-
-  Returns the new 'EventFold' value, along with the output for all of
-  the events that can now be considered "fully consistent".
--}
-mergeMaybe :: (Eq o, Event e, Ord p)
-  => EventFold o p e
-  -> EventPack o p e
-  -> Maybe (EventFold o p e, Map (EventId p) (Output e))
-mergeMaybe ps es = either (const Nothing) Just (mergeEither ps es)
-
-
-{- |
-  Like `mergeMaybe`, but returns an error indicating exactly what
-  went wrong.
+  Like `fullMerge`, but merge a remote 'Diff' instead of a full remote
+  'EventFold'.
 -}
 mergeEither :: (Eq o, Event e, Ord p)
   => EventFold o p e
@@ -548,8 +529,11 @@ mergeEither orig@(EventFold o infimum d1) ep@(EventPack d2 _ i2) =
 
 
 {- |
-  Like 'mergeEither', but merge a full 'EventFold' instead of just an
-  event pack.
+  Monotonically merge the information in two 'EventFold's.  The resulting
+  'EventFold' may have a higher infimum value, but it will never have
+  a lower one. Only 'EventFold's that originated from the same 'new'
+  call can be merged. If the origins are mismatched, or if there is some
+  other programming error detected, then an error will be returned.
 
   Returns the new 'EventFold' value, along with the output for all of
   the events that can now be considered "fully consistent".

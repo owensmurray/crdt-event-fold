@@ -106,6 +106,7 @@ module Data.CRDT.EventFold (
     
   -}
   fullMerge,
+  UpdateResult(..),
   acknowledge,
   events,
   diffMerge,
@@ -469,7 +470,7 @@ diffMerge
   -> Diff o p e
   -> Either
        (MergeError o p e)
-       (EventFold o p e, Map (EventId p) (Output e))
+       (UpdateResult o p e)
 
 diffMerge
     EventFold {psOrigin = o1}
@@ -510,7 +511,12 @@ diffMerge
         }
     of
       Nothing -> Left (DiffTooSparse orig ep)
-      Just ef -> Right ef
+      Just (ef, outputs) ->
+        Right (
+          UpdateResult
+            ef
+            outputs
+        )
   where
     mergeAcks :: (Ord p)
       => (Delta p e, Set p)
@@ -555,7 +561,7 @@ fullMerge
      )
   => EventFold o p e
   -> EventFold o p e
-  -> Either (MergeError o p e) (EventFold o p e, Map (EventId p) (Output e))
+  -> Either (MergeError o p e) (UpdateResult o p e)
 fullMerge ef (EventFold o2 i2 d2) =
   diffMerge
     ef {psInfimum = max (psInfimum ef) i2}
@@ -563,6 +569,22 @@ fullMerge ef (EventFold o2 i2 d2) =
       diffOrigin = o2,
       diffEvents = first (Just . runIdentity) <$> d2,
       diffInfimum = eventId i2
+    }
+
+
+{- |
+  The result updating the 'EventFold', which is some information
+  containing the new 'EventFold' value, the outputs of events that have
+  reached the infimum as a result of update (i.e. "totally consistent
+  outputs"), and a flag indicating whether the other participants need
+  to hear about the changes.
+-}
+data UpdateResult o p e =
+    UpdateResult {
+      urEventFold :: EventFold o p e,
+                     {- ^ The new 'EventFold' value -}
+        urOutputs :: Map (EventId p) (Output e)
+                     {- ^ Any consistent outputs resulting from the merge. -}
     }
 
 

@@ -54,7 +54,7 @@
   >                    -- instance, and 'b' is 'State a'.
   >
   >   -> b             -- Loosely analogous to 'infimumValue' where
-  >                    -- progressives applications are accumulated. (I
+  >                    -- progressive applications are accumulated. (I
   >                    -- know that in the type signature of 'foldl'
   >                    -- this is the "starting value", but imagine that
   >                    -- for a recursive implementation of 'foldl',
@@ -70,13 +70,13 @@
 -}
 module Data.CRDT.EventFold (
   -- * Basic API
-  -- ** Creating new CRDTs.
+  -- ** Creating new CRDTs
   new,
 
-  -- ** Adding new events.
+  -- ** Adding new events
   event,
 
-  -- ** Coordinating replica updates.
+  -- ** Coordinating replica updates
   {- |
     Functions in this section are used to help merge foreign copies of
     the CRDT, and transmit our own copy. (This library does not provide
@@ -113,15 +113,15 @@ module Data.CRDT.EventFold (
   mergeEither,
   MergeError(..),
 
-  -- ** Participation.
+  -- ** Participation
   participate,
   disassociate,
 
-  -- ** Defining your state and events.
+  -- ** Defining your state and events
   Event(..),
   EventResult(..),
 
-  -- * Inspecting the 'EventFold'.
+  -- * Inspecting the 'EventFold'
   isBlockedOnError,
   projectedValue,
   infimumValue,
@@ -400,7 +400,7 @@ data EventResult e
 -}
 new
   :: (Default (State e), Ord p)
-  => o {- ^ The "origin", iditifying the historical lineage of this CRDT. -}
+  => o {- ^ The "origin", identifying the historical lineage of this CRDT. -}
   -> p {- ^ The initial participant. -}
   -> EventFold o p e
 new o participant =

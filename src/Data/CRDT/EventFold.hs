@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -54,7 +55,7 @@
   >                    -- instance, and 'b' is 'State a'.
   >
   >   -> b             -- Loosely analogous to 'infimumValue' where
-  >                    -- progressives applications are accumulated. (I
+  >                    -- progressive applications are accumulated. (I
   >                    -- know that in the type signature of 'foldl'
   >                    -- this is the "starting value", but imagine that
   >                    -- for a recursive implementation of 'foldl',
@@ -70,13 +71,13 @@
 -}
 module Data.CRDT.EventFold (
   -- * Basic API
-  -- ** Creating new CRDTs.
+  -- ** Creating new CRDTs
   new,
 
-  -- ** Adding new events.
+  -- ** Adding new events
   event,
 
-  -- ** Coordinating replica updates.
+  -- ** Coordinating replica updates
   {- |
     Functions in this section are used to help merge foreign copies of
     the CRDT, and transmit our own copy. (This library does not provide
@@ -84,44 +85,33 @@ module Data.CRDT.EventFold (
     have 'Binary' instances. Actually arranging for these things to get
     shipped across a wire is left to the user.)
 
-    In principal, the only two functions you need are 'fullMerge' and
-    'acknowledge'. You can ship the full 'EventFold' value to a remote
-    participant and it can incorporate any changes using 'fullMerge',
-    and vice versa. You can receive an 'EventFold' value from another
-    participant and incorporate its changes locally using 'fullMerge'. You
-    can then acknowledge the incorporation using 'acknowledge'.
+    In principal, the only function you need is 'fullMerge'. Everything
+    else in this section is an optimization.  You can ship the full
+    'EventFold' value to a remote participant and it can incorporate
+    any changes using 'fullMerge', and vice versa. You can receive an
+    'EventFold' value from another participant and incorporate its
+    changes locally using 'fullMerge'.
 
     However, if your underlying data structure is large, it may be more
     efficient to just ship a sort of diff containing the information
     that the local participant thinks the remote participant might be
-    missing. That is what 'events', 'mergeMaybe', and 'mergeEither'
-    are for.
-
-    Calling 'acknowledge' is important because that is the magic that
-    allows CRDT garbage collection to happen. "CRDT garbage collection"
-    means we don't store an infinite series of events that always grows
-    and never shrinks. We only store the outstanding events that we
-    can't prove have been seen by every participant. Events that we /can/
-    prove have been seen by every participant are applied to the infimum
-    (a.k.a. "base value") and the event itself is discarded.
-    
+    missing. That is what 'events' and 'diffMerge' are for.
   -}
   fullMerge,
-  acknowledge,
+  UpdateResult(..),
   events,
-  mergeMaybe,
-  mergeEither,
+  diffMerge,
   MergeError(..),
 
-  -- ** Participation.
+  -- ** Participation
   participate,
   disassociate,
 
-  -- ** Defining your state and events.
+  -- ** Defining your state and events
   Event(..),
   EventResult(..),
 
-  -- * Inspecting the 'EventFold'.
+  -- * Inspecting the 'EventFold'
   isBlockedOnError,
   projectedValue,
   infimumValue,
@@ -133,10 +123,9 @@ module Data.CRDT.EventFold (
   divergent,
 
   -- * Underlying Types
-  EventFoldF,
   EventFold,
   EventId,
-  EventPack,
+  Diff,
 
 ) where
 
@@ -156,33 +145,7 @@ import qualified Data.Map.Merge.Lazy as Map.Merge
 import qualified Data.Set as Set
 
 
-{- |
-  This represents a replicated data structure into which participants can
-  add 'Event's that are folded into a base 'State'. You can also think
-  of the "events" as operations that mutate the base state, and the point
-  of this CRDT is to coordinate the application of the operations across
-  all participants so that they are applied consistently even if the
-  operations themselves are not commutative, idempotent, or monotonic.
-  Those properties to the CRDT by the way in which it manages the events,
-  and it is therefore unnecessary that the events themselves have them.
-
-  Variables are:
-
-  - @o@ - Origin
-  - @p@ - Participant
-  - @e@ - Event
-  - @f@ - The Monad in which the events live
-
-  The "Origin" is a value that is more or less meant to identify the
-  "thing" being replicated, and in particular identify the historical
-  lineage of the 'EventFold'. The idea is that it is meaningless to
-  try and merge two 'EventFold's that do not share a common history
-  (identified by the origin value) and doing so is a programming error. It
-  is only used to try and check for this type of programming error and
-  throw an exception if it happens instead of producing undefined (and
-  difficult to detect) behavior.
--}
-data EventFoldF o p e f = EventFold {
+data EventFoldF o p e f = EventFoldF {
      psOrigin :: o,
     psInfimum :: Infimum (State e) p,
      psEvents :: Map (EventId p) (f (Delta p e), Set p)
@@ -216,7 +179,44 @@ deriving stock instance
   => Show (EventFoldF o p e f)
 
 
-type EventFold o p e = EventFoldF o p e Identity
+{- |
+  This type is a
+  <https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type CRDT>
+  into which participants can add 'Event's that are folded into a
+  base 'State'. You can also think of the "events" as operations that
+  mutate the base state, and the point of this CRDT is to coordinate
+  the application of the operations across all participants so that
+  they are applied consistently even if the operations themselves are
+  not commutative, idempotent, or monotonic.
+
+  Variables are:
+
+  - @o@ - Origin
+  - @p@ - Participant
+  - @e@ - Event
+
+  The "Origin" is a value that is more or less meant to identify the
+  "thing" being replicated, and in particular identify the historical
+  lineage of the 'EventFold'. The idea is that it is meaningless to
+  try and merge two 'EventFold's that do not share a common history
+  (identified by the origin value) and doing so is a programming error. It
+  is only used to try and check for this type of programming error and
+  throw an exception if it happens instead of producing undefined (and
+  difficult to detect) behavior.
+-}
+newtype EventFold o p e = EventFold { unEventFold :: EventFoldF o p e Identity}
+deriving stock instance
+    (Show o, Show p, Show e, Show (Output e), Show (State e))
+  =>
+    Show (EventFold o p e)
+deriving newtype instance
+    (Binary o, Binary p, Binary e, Binary (Output e), Binary (State e))
+  =>
+    Binary (EventFold o p e)
+deriving newtype instance
+    (Eq o, Eq p, Eq e, Eq (Output e))
+  =>
+    Eq (EventFold o p e)
 
 
 {- |
@@ -272,23 +272,23 @@ data MergeError o p e
       to merge 'EventFold's that have different origins because they
       do not share a common history.
     -}
-  | EventPackTooNew (EventFold o p e) (EventPack o p e)
+  | DiffTooNew (EventFold o p e) (Diff o p e)
     {- ^
-      The 'EventPack''s infimum is greater than any event known to
-      'EventFold' into which it is being merged. This should be impossible
-      and indicates that either the local 'EventFold' has rolled back an
-      event that it had previously acknowledged, or else the source of the
-      'EventPack' moved the infimum forward without a full acknowledgement
+      The `Diff`'s infimum is greater than any event known to 'EventFold'
+      into which it is being merged. This should be impossible and
+      indicates that either the local 'EventFold' has rolled back an
+      event that it had previously acknowledged, or else the source of
+      the 'Diff' moved the infimum forward without a full acknowledgement
       from all participants. Both of these conditions should be regarded
       as serious bugs.
     -}
-  | EventPackTooSparse (EventFold o p e) (EventPack o p e)
+  | DiffTooSparse (EventFold o p e) (Diff o p e)
     {- ^
-      The 'EventPack' assumes we know about events that we do not in
-      fact know about. This is only possible if we rolled back our
-      copy of the state somehow and "forgot" about state that we had
-      previous acknowledged, or else some other participant erroneously
-      acknowledged some events on our behalf.
+      The 'Diff' assumes we know about events that we do not in fact know
+      about. This is only possible if we rolled back our copy of the state
+      somehow and "forgot" about state that we had previous acknowledged,
+      or else some other participant erroneously acknowledged some events
+      on our behalf.
     -}
 deriving stock instance
     ( Show (Output e)
@@ -376,8 +376,8 @@ instance (Event a, Event b) => Event (Either a b) where
   overwrite their infimum with the infimum provided by the Full Merge.
 
   Doing a full merge can be much more expensive than doing a simple
-  'EventPack' merge, because it requires transmitting the full value of
-  the 'EventFold' instead of just the outstanding operations.
+  'Diff' merge, because it requires transmitting the full value of the
+  'EventFold' instead of just the outstanding operations.
 
   This type represents how computation of the event finished; with either a
   pure result, or some kind of system error.
@@ -400,31 +400,32 @@ data EventResult e
 -}
 new
   :: (Default (State e), Ord p)
-  => o {- ^ The "origin", iditifying the historical lineage of this CRDT. -}
+  => o {- ^ The "origin", identifying the historical lineage of this CRDT. -}
   -> p {- ^ The initial participant. -}
   -> EventFold o p e
 new o participant =
-  EventFold {
-      psOrigin = o,
-      psInfimum = Infimum {
-          eventId = def,
-          participants = Set.singleton participant,
-          stateValue = def
-        },
-      psEvents = mempty
-    }
+  EventFold
+    EventFoldF {
+        psOrigin = o,
+        psInfimum = Infimum {
+            eventId = def,
+            participants = Set.singleton participant,
+            stateValue = def
+          },
+        psEvents = mempty
+      }
 
 
 {- |
   Get the outstanding events that need to be propagated to a particular
   participant.
 -}
-events :: (Ord p) => p -> EventFold o p e -> EventPack o p e
-events peer ps =
-    EventPack {
-      epEvents = omitAcknowledged <$> psEvents ps,
-      epOrigin = psOrigin ps,
-      epInfimum = eventId (psInfimum ps)
+events :: (Ord p) => p -> EventFold o p e -> Diff o p e
+events peer (EventFold ef) =
+    Diff {
+      diffEvents = omitAcknowledged <$> psEvents ef,
+      diffOrigin = psOrigin ef,
+      diffInfimum = eventId (psInfimum ef)
     }
   where
     {- |
@@ -442,71 +443,70 @@ events peer ps =
 
 
 {- | A package containing events that can be merged into an event fold. -}
-data EventPack o p e = EventPack {
-     epEvents :: Map (EventId p) (Maybe (Delta p e), Set p),
-     epOrigin :: o,
-    epInfimum :: EventId p
+data Diff o p e = Diff {
+     diffEvents :: Map (EventId p) (Maybe (Delta p e), Set p),
+     diffOrigin :: o,
+    diffInfimum :: EventId p
   }
   deriving stock (Generic)
 deriving stock instance (
     Show o, Show p, Show e, Show (Output e)
   ) =>
-    Show (EventPack o p e)
+    Show (Diff o p e)
 instance (
     Binary o, Binary p, Binary e, Binary (Output e)
   ) =>
-    Binary (EventPack o p e)
+    Binary (Diff o p e)
 
 
 {- |
-  Monotonically merge the information in two 'EventFold's.  The resulting
-  'EventFold' may have a higher infimum value, but it will never have
-  a lower one. Only 'EventFold's that originated from the same 'new'
-  call can be merged. If the origins are mismatched, then 'Nothing'
-  is returned.
-
-  Returns the new 'EventFold' value, along with the output for all of
-  the events that can now be considered "fully consistent".
+  Like `fullMerge`, but merge a remote 'Diff' instead of a full remote
+  'EventFold'.
 -}
-mergeMaybe :: (Eq o, Event e, Ord p)
-  => EventFold o p e
-  -> EventPack o p e
-  -> Maybe (EventFold o p e, Map (EventId p) (Output e))
-mergeMaybe ps es = either (const Nothing) Just (mergeEither ps es)
-
-
-{- |
-  Like `mergeMaybe`, but returns an error indicating exactly what
-  went wrong.
--}
-mergeEither :: (Eq o, Event e, Ord p)
-  => EventFold o p e
-  -> EventPack o p e
+diffMerge
+  :: ( Eq (Output e)
+     , Eq e
+     , Eq o
+     , Event e
+     , Ord p
+     )
+  => p
+  -> EventFold o p e
+  -> Diff o p e
   -> Either
        (MergeError o p e)
-       (EventFold o p e, Map (EventId p) (Output e))
+       (UpdateResult o p e)
 
-mergeEither EventFold {psOrigin = o1} EventPack {epOrigin = o2} | o1 /= o2 =
-  Left (DifferentOrigins o1 o2)
+diffMerge
+    _
+    (EventFold EventFoldF {psOrigin = o1})
+    Diff {diffOrigin = o2}
+  | o1 /= o2 =
+    Left (DifferentOrigins o1 o2)
 
-mergeEither ps pak | tooNew =
-    Left (EventPackTooNew ps pak)
+diffMerge _ ef pak | tooNew =
+    Left (DiffTooNew ef pak)
   where
     maxState =
       maximum
-      . Set.insert (eventId . psInfimum $ ps)
+      . Set.insert (eventId . psInfimum . unEventFold $ ef)
       . Map.keysSet
       . psEvents
-      $ ps
+      . unEventFold
+      $ ef
 
     tooNew :: Bool
-    tooNew = maxState < epInfimum pak
+    tooNew = maxState < diffInfimum pak
 
-mergeEither orig@(EventFold o infimum d1) ep@(EventPack d2 _ i2) =
+diffMerge
+    participant
+    orig@(EventFold (EventFoldF o infimum d1))
+    ep@(Diff d2 _ i2)
+  =
     case
       reduce
         i2
-        EventFold {
+        EventFoldF {
           psOrigin = o,
           psInfimum = infimum,
           psEvents =
@@ -518,8 +518,20 @@ mergeEither orig@(EventFold o infimum d1) ep@(EventPack d2 _ i2) =
               d2
         }
     of
-      Nothing -> Left (EventPackTooSparse orig ep)
-      Just ps -> Right ps
+      Nothing -> Left (DiffTooSparse orig ep)
+      Just (ef1, outputs1) ->
+        let (ef2, outputs2) = acknowledge participant ef1
+        in
+          Right (
+            UpdateResult
+              (EventFold ef2)
+              (Map.union outputs1 outputs2)
+              (
+                i2 /= eventId infimum
+                || not (Map.null d2)
+                || ef2 /= unEventFold orig
+              )
+          )
   where
     mergeAcks :: (Ord p)
       => (Delta p e, Set p)
@@ -548,23 +560,76 @@ mergeEither orig@(EventFold o infimum d1) ep@(EventPack d2 _ i2) =
 
 
 {- |
-  Like 'mergeEither', but merge a full 'EventFold' instead of just an
-  event pack.
+  Monotonically merge the information in two 'EventFold's.  The resulting
+  'EventFold' may have a higher infimum value, but it will never have
+  a lower one. Only 'EventFold's that originated from the same 'new'
+  call can be merged. If the origins are mismatched, or if there is some
+  other programming error detected, then an error will be returned.
 
   Returns the new 'EventFold' value, along with the output for all of
   the events that can now be considered "fully consistent".
 -}
-fullMerge :: (Eq o, Event e, Ord p)
-  => EventFold o p e
+fullMerge
+  :: ( Eq (Output e)
+     , Eq e
+     , Eq o
+     , Event e
+     , Ord p
+     )
+  => p {- ^ The participant doing the merge. -}
   -> EventFold o p e
-  -> Either (MergeError o p e) (EventFold o p e, Map (EventId p) (Output e))
-fullMerge ps (EventFold o2 i2 d2) =
-  mergeEither
-    ps {psInfimum = max (psInfimum ps) i2}
-    EventPack {
-      epOrigin = o2,
-      epEvents = first (Just . runIdentity) <$> d2,
-      epInfimum = eventId i2
+  -> EventFold o p e
+  -> Either (MergeError o p e) (UpdateResult o p e)
+fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
+  case
+    diffMerge
+      participant
+      (
+        EventFold
+          left {
+            psInfimum = max (psInfimum left) i2
+          }
+      )
+      Diff {
+        diffOrigin = o2,
+        diffEvents = first (Just . runIdentity) <$> d2,
+        diffInfimum = eventId i2
+      }
+  of
+    Left err -> Left err
+    Right (UpdateResult ef outputs _prop) ->
+      let (ef2, outputs2) = acknowledge participant (unEventFold ef)
+      in
+        Right (
+          UpdateResult
+            (EventFold ef2)
+            (Map.union outputs outputs2)
+            (ef2 /= left || ef2 /= right)
+        )
+
+
+{- |
+  The result updating the 'EventFold', which is some information
+  containing the new 'EventFold' value, the outputs of events that have
+  reached the infimum as a result of update (i.e. "totally consistent
+  outputs"), and a flag indicating whether the other participants need
+  to hear about the changes.
+-}
+data UpdateResult o p e =
+    UpdateResult {
+             urEventFold :: EventFold o p e,
+                            {- ^ The new 'EventFold' value -}
+               urOutputs :: Map (EventId p) (Output e),
+                            {- ^
+                              Any consistent outputs resulting from
+                              the merge.
+                            -}
+      urNeedsPropagation :: Bool
+                            {- ^
+                              'True' if any new information was added to
+                              the 'EventFold' which might need propagating
+                              to other participants.
+                            -}
     }
 
 
@@ -578,9 +643,9 @@ fullMerge ps (EventFold o2 i2 d2) =
 -}
 acknowledge :: (Event e, Ord p)
   => p
-  -> EventFold o p e
-  -> (EventFold o p e, Map (EventId p) (Output e))
-acknowledge p ps =
+  -> EventFoldF o p e Identity
+  -> (EventFoldF o p e Identity, Map (EventId p) (Output e))
+acknowledge p ef =
     {-
       First do a normal reduction, then do a special acknowledgement of the
       reduction error, if any.
@@ -589,8 +654,8 @@ acknowledge p ps =
       (ps2, outputs) =
         runIdentity $
           reduce
-            (eventId (psInfimum ps))
-            ps {psEvents = fmap ackOne (psEvents ps)}
+            (eventId (psInfimum ef))
+            ef {psEvents = fmap ackOne (psEvents ef)}
       (ps3, outputs2) = ackErr p ps2
     in
       (ps3, outputs <> outputs2)
@@ -601,21 +666,21 @@ acknowledge p ps =
 {- | Acknowledge the reduction error, if one exists. -}
 ackErr :: (Event e, Ord p)
   => p
-  -> EventFold o p e
-  -> (EventFold o p e, Map (EventId p) (Output e))
-ackErr p ps =
+  -> EventFoldF o p e Identity
+  -> (EventFoldF o p e Identity, Map (EventId p) (Output e))
+ackErr p ef =
   runIdentity $
     reduce
-      (eventId (psInfimum ps))
-      ps {
+      (eventId (psInfimum ef))
+      ef {
         psEvents =
-          case Map.minViewWithKey (psEvents ps) of
+          case Map.minViewWithKey (psEvents ef) of
             Just ((eid, (Identity (Error o eacks), acks)), deltas) ->
               Map.insert
                 eid
                 (Identity (Error o (Set.insert p eacks)), acks)
                 deltas
-            _ -> psEvents ps
+            _ -> psEvents ef
       }
 
 
@@ -623,27 +688,42 @@ ackErr p ps =
   Allow a participant to join in the distributed nature of the
   'EventFold'. Return the 'EventId' at which the participation is
   recorded, and the resulting 'EventFold'. The purpose of returning the
-  state is so that it can use it to tell when the participation event
-  has reached the infimum.
+  'EventId' is so that you can use it to tell when the participation
+  event has reached the infimum. See also: 'infimumId'
 -}
-participate :: (Ord p)
-  => p
-  -> p
+participate :: (Ord p, Event e)
+  => p {- ^ The local participant. -}
+  -> p {- ^ The participant being added. -}
   -> EventFold o p e
-  -> (EventId p, EventFold o p e)
-participate self peer ps@EventFold {psEvents} =
+  -> (EventId p, UpdateResult o p e)
+participate self peer (EventFold ef) =
   let
-    eid = nextId self ps
+    eid = nextId self ef
   in
     (
       eid,
-      ps {
-        psEvents =
-          Map.insert
-            eid
-            (Identity (Join peer), mempty)
-            psEvents
-      }
+      let
+        (ef2, outputs1) =
+          acknowledge
+          self
+          ef {
+            psEvents =
+              Map.insert
+                eid
+                (Identity (Join peer), mempty)
+                (psEvents ef)
+          }
+        (ef3, outputs2) = acknowledge peer ef2
+      in
+        UpdateResult {
+          urEventFold = EventFold ef3,
+          urOutputs = Map.union outputs1 outputs2,
+          {- 
+            By definition, we have added some new information that
+            needs propagating.
+          -}
+          urNeedsPropagation = True
+        }
     )
 
 
@@ -656,13 +736,13 @@ disassociate :: (Ord p)
   -> p
   -> EventFold o p e
   -> EventFold o p e
-disassociate self peer ps@EventFold {psEvents} =
-  ps {
+disassociate self peer (EventFold ef) =
+  EventFold ef {
     psEvents =
       Map.insert
-        (nextId self ps)
+        (nextId self ef)
         (Identity (UnJoin peer), mempty)
-        psEvents
+        (psEvents ef)
   }
 
 
@@ -676,29 +756,55 @@ event :: (Ord p, Event e)
   => p
   -> e
   -> EventFold o p e
-  -> (Output e, EventId p, EventFold o p e)
-event p e ps@EventFold {psEvents} =
+  -> (Output e, EventId p, UpdateResult o p e)
+event p e ef =
   let
-    eid = nextId p ps
+    eid = nextId p (unEventFold ef)
   in
     (
-      case apply e (projectedValue ps) of
+      case apply e (projectedValue ef) of
         Pure output _ -> output
         SystemError output -> output,
       eid,
-      ps {
-        psEvents =
-          Map.insert
-            eid
-            (Identity (Event e), mempty)
-            psEvents
-      }
+      let
+        (ef2, outputs) =
+          acknowledge
+            p
+            (
+              (unEventFold ef) {
+                psEvents =
+                  Map.insert
+                    eid
+                    (Identity (Event e), mempty)
+                    (psEvents (unEventFold ef))
+              }
+            )
+      in
+        UpdateResult {
+          urEventFold = EventFold ef2,
+          urOutputs = outputs,
+          urNeedsPropagation =
+            {-
+              An event is, by definition, adding information to the 'EventFold',
+              and the only time we might not need to propagate this this
+              information is if the local participant is the only participant.
+            -}
+            allParticipants (EventFold ef2) /= Set.singleton p
+        }
     )
 
 
 {- | Return the current projected value of the 'EventFold'. -}
 projectedValue :: (Event e) => EventFold o p e -> State e
-projectedValue EventFold {psInfimum = Infimum {stateValue}, psEvents} =
+projectedValue
+    (
+      EventFold
+        EventFoldF {
+          psInfimum = Infimum {stateValue},
+          psEvents
+        }
+    )
+  =
     foldr
       (\ e s ->
         case apply e s of
@@ -715,21 +821,29 @@ projectedValue EventFold {psInfimum = Infimum {stateValue}, psEvents} =
 
 
 {- | Return the current infimum value of the 'EventFold'. -}
-infimumValue :: EventFoldF o p e f -> State e
-infimumValue EventFold {psInfimum = Infimum {stateValue}} = stateValue
+infimumValue :: EventFold o p e -> State e
+infimumValue (EventFold EventFoldF {psInfimum = Infimum {stateValue}}) =
+  stateValue
 
 
 {- | Return the 'EventId' of the infimum value. -}
-infimumId :: EventFoldF o p e f -> EventId p
-infimumId = eventId . psInfimum
+infimumId :: EventFold o p e -> EventId p
+infimumId = eventId . psInfimum . unEventFold
 
 
 {- |
   Gets the known participants at the infimum.
 -}
-infimumParticipants :: EventFoldF o p e f -> Set p
-infimumParticipants EventFold {psInfimum = Infimum {participants}} =
-  participants
+infimumParticipants :: EventFold o p e -> Set p
+infimumParticipants
+    (
+      EventFold
+        EventFoldF {
+          psInfimum = Infimum {participants}
+        }
+    )
+  =
+    participants
 
 
 {- |
@@ -737,10 +851,15 @@ infimumParticipants EventFold {psInfimum = Infimum {participants}} =
   projected for removal.
 -}
 allParticipants :: (Ord p) => EventFold o p e -> Set p
-allParticipants EventFold {
-    psInfimum = Infimum {participants},
-    psEvents
-  } =
+allParticipants
+    (
+      EventFold
+        EventFoldF {
+          psInfimum = Infimum {participants},
+          psEvents
+        }
+    )
+  =
     foldr updateParticipants participants (toDescList psEvents)
   where
     updateParticipants :: (Ord p)
@@ -756,10 +875,15 @@ allParticipants EventFold {
   are projected for removal.
 -}
 projParticipants :: (Ord p) => EventFold o p e -> Set p
-projParticipants EventFold {
-    psInfimum = Infimum {participants},
-    psEvents
-  } =
+projParticipants
+    (
+      EventFold
+        EventFoldF {
+          psInfimum = Infimum {participants},
+          psEvents
+        }
+    )
+  =
     foldr updateParticipants participants (toDescList psEvents)
   where
     updateParticipants :: (Ord p)
@@ -780,10 +904,13 @@ projParticipants EventFold {
 -}
 divergent :: forall o p e. (Ord p) => EventFold o p e -> Map p (EventId p)
 divergent
-    EventFold {
-      psInfimum = Infimum {participants, eventId},
-      psEvents
-    }
+    (
+      EventFold
+        EventFoldF {
+          psInfimum = Infimum {participants, eventId},
+          psEvents
+        }
+    )
   =
     let (byParticipant, maxEid) = eidByParticipant
     in Map.filter (< maxEid) byParticipant
@@ -824,8 +951,8 @@ divergent
 
 
 {- | Return the origin value of the 'EventFold'. -}
-origin :: EventFoldF o p e f -> o
-origin = psOrigin
+origin :: EventFold o p e -> o
+origin = psOrigin . unEventFold
 
 
 {- |
@@ -843,17 +970,17 @@ reduce
      {- ^
        The infimum 'EventId' as known by some node in the cluster. "Some
        node" can be different than "this node" in the case where another
-       node advanced the infimum before we did (because it knew about
-       our acknowledgement, but we didn't know about its acknowledgement)
-       and sent us an 'EventPack' with this value of the infimum. In this
+       node advanced the infimum before we did (because it knew about our
+       acknowledgement, but we didn't know about its acknowledgement)
+       and sent us an 'Diff' with this value of the infimum. In this
        case, this infimum value acts as a universal acknowledgement of
        all events coming before it.
      -}
   -> EventFoldF o p e f
-  -> f (EventFold o p e, Map (EventId p) (Output e))
+  -> f (EventFoldF o p e Identity, Map (EventId p) (Output e))
 reduce
     infState
-    ps@EventFold {
+    ef@EventFoldF {
       psInfimum = infimum@Infimum {participants, stateValue},
       psEvents
     }
@@ -862,20 +989,20 @@ reduce
       Nothing ->
         pure
           (
-            EventFold {
-              psOrigin = psOrigin ps,
-              psInfimum = psInfimum ps,
+            EventFoldF {
+              psOrigin = psOrigin ef,
+              psInfimum = psInfimum ef,
               psEvents = mempty
             },
             mempty
           )
       Just ((eid, (getUpdate, acks)), newDeltas)
         | eid <= eventId infimum -> {- The event is obsolete. Ignore it. -}
-            reduce infState ps {
+            reduce infState ef {
               psEvents = newDeltas
             }
         | isRenegade eid -> {- This is a renegade event. Ignore it. -}
-            reduce infState ps {
+            reduce infState ef {
               psEvents = newDeltas
             }
         | otherwise -> do
@@ -897,7 +1024,7 @@ reduce
               then
                 case update of
                   Join p ->
-                    reduce infState ps {
+                    reduce infState ef {
                       psInfimum = infimum {
                           eventId = eid,
                           participants = Set.insert p participants
@@ -905,7 +1032,7 @@ reduce
                       psEvents = newDeltas
                     }
                   UnJoin p ->
-                    reduce infState ps {
+                    reduce infState ef {
                       psInfimum = infimum {
                           eventId = eid,
                           participants = Set.delete p participants
@@ -915,7 +1042,7 @@ reduce
                   Error output eacks
                     | Set.null (participants \\ eacks) -> do
                         (ps2, outputs) <-
-                          reduce infState ps {
+                          reduce infState ef {
                             psInfimum = infimum {
                               eventId = eid
                             }
@@ -925,9 +1052,9 @@ reduce
                         events_ <- runEvents psEvents
                         pure
                           (
-                            EventFold {
-                              psOrigin = psOrigin ps,
-                              psInfimum = psInfimum ps,
+                            EventFoldF {
+                              psOrigin = psOrigin ef,
+                              psInfimum = psInfimum ef,
                               psEvents = events_
                             },
                             mempty
@@ -938,8 +1065,8 @@ reduce
                         events_ <- runEvents newDeltas
                         pure
                           (
-                            EventFold {
-                              psOrigin = psOrigin ps,
+                            EventFoldF {
+                              psOrigin = psOrigin ef,
                               psInfimum = infimum,
                               psEvents =
                                 Map.insert
@@ -951,7 +1078,7 @@ reduce
                           )
                       Pure output newState -> do
                         (ps2, outputs) <-
-                          reduce infState ps {
+                          reduce infState ef {
                             psInfimum = infimum {
                                 eventId = eid,
                                 stateValue = newState
@@ -963,9 +1090,9 @@ reduce
                 events_ <- runEvents psEvents
                 pure
                   (
-                    EventFold {
-                      psOrigin = psOrigin ps,
-                      psInfimum = psInfimum ps,
+                    EventFoldF {
+                      psOrigin = psOrigin ef,
+                      psInfimum = psInfimum ef,
                       psEvents = events_
                     },
                     mempty
@@ -1022,16 +1149,27 @@ reduce
   a participant.
 -}
 nextId :: (Ord p) => p -> EventFoldF o p e f -> EventId p
-nextId p EventFold {psInfimum = Infimum {eventId}, psEvents} =
+nextId p EventFoldF {psInfimum = Infimum {eventId}, psEvents} =
   case maximum (eventId:keys psEvents) of
     BottomEid -> Eid 0 p
     Eid ord _ -> Eid (succ ord) p
 
 
-{- | Return 'True' if progress on the 'EventFold' is blocked on a 'SystemError'. -}
+{- |
+  Return 'True' if progress on the 'EventFold' is blocked on a
+  'SystemError'.
+
+  The implication here is that if the local copy is blocked on a
+  'SystemError', it needs to somehow arrange for remote copies to send
+  full 'EventFold's, not just 'Diff's. A 'diffMerge' is not sufficient
+  to get past the block. Only a 'fullMerge' will suffice.
+  
+  If your system is not using 'SystemError' or else not using 'Diff's,
+  then you don't ever need to worry about this function.
+-}
 isBlockedOnError :: EventFold o p e -> Bool
-isBlockedOnError ps =
-  case Map.minView (psEvents ps) of
+isBlockedOnError (EventFold ef) =
+  case Map.minView (psEvents ef) of
     Just ((Identity (Error _ _), _), _) -> True
     _ -> False
 

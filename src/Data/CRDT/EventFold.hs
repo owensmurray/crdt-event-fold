@@ -460,15 +460,22 @@ instance (
   Like `fullMerge`, but merge a remote 'Diff' instead of a full remote
   'EventFold'.
 -}
-diffMerge :: (Eq o, Event e, Ord p)
+diffMerge
+  :: ( Eq o
+     , Event e
+     , Ord p
+     )
   => EventFold o p e
   -> Diff o p e
   -> Either
        (MergeError o p e)
        (EventFold o p e, Map (EventId p) (Output e))
 
-diffMerge EventFold {psOrigin = o1} Diff {diffOrigin = o2} | o1 /= o2 =
-  Left (DifferentOrigins o1 o2)
+diffMerge
+    EventFold {psOrigin = o1}
+    Diff {diffOrigin = o2}
+  | o1 /= o2 =
+    Left (DifferentOrigins o1 o2)
 
 diffMerge ef pak | tooNew =
     Left (DiffTooNew ef pak)
@@ -483,7 +490,10 @@ diffMerge ef pak | tooNew =
     tooNew :: Bool
     tooNew = maxState < diffInfimum pak
 
-diffMerge orig@(EventFold o infimum d1) ep@(Diff d2 _ i2) =
+diffMerge
+    orig@(EventFold o infimum d1)
+    ep@(Diff d2 _ i2)
+  =
     case
       reduce
         i2
@@ -538,7 +548,11 @@ diffMerge orig@(EventFold o infimum d1) ep@(Diff d2 _ i2) =
   Returns the new 'EventFold' value, along with the output for all of
   the events that can now be considered "fully consistent".
 -}
-fullMerge :: (Eq o, Event e, Ord p)
+fullMerge
+  :: ( Eq o
+     , Event e
+     , Ord p
+     )
   => EventFold o p e
   -> EventFold o p e
   -> Either (MergeError o p e) (EventFold o p e, Map (EventId p) (Output e))
@@ -682,7 +696,12 @@ event p e ef@EventFold {psEvents} =
 
 {- | Return the current projected value of the 'EventFold'. -}
 projectedValue :: (Event e) => EventFold o p e -> State e
-projectedValue EventFold {psInfimum = Infimum {stateValue}, psEvents} =
+projectedValue
+    EventFold {
+      psInfimum = Infimum {stateValue},
+      psEvents
+    }
+  =
     foldr
       (\ e s ->
         case apply e s of
@@ -700,7 +719,8 @@ projectedValue EventFold {psInfimum = Infimum {stateValue}, psEvents} =
 
 {- | Return the current infimum value of the 'EventFold'. -}
 infimumValue :: EventFoldF o p e f -> State e
-infimumValue EventFold {psInfimum = Infimum {stateValue}} = stateValue
+infimumValue EventFold {psInfimum = Infimum {stateValue}} =
+  stateValue
 
 
 {- | Return the 'EventId' of the infimum value. -}
@@ -712,8 +732,12 @@ infimumId = eventId . psInfimum
   Gets the known participants at the infimum.
 -}
 infimumParticipants :: EventFoldF o p e f -> Set p
-infimumParticipants EventFold {psInfimum = Infimum {participants}} =
-  participants
+infimumParticipants
+    EventFold {
+      psInfimum = Infimum {participants}
+    }
+  =
+    participants
 
 
 {- |
@@ -721,10 +745,12 @@ infimumParticipants EventFold {psInfimum = Infimum {participants}} =
   projected for removal.
 -}
 allParticipants :: (Ord p) => EventFold o p e -> Set p
-allParticipants EventFold {
-    psInfimum = Infimum {participants},
-    psEvents
-  } =
+allParticipants
+    EventFold {
+      psInfimum = Infimum {participants},
+      psEvents
+    }
+  =
     foldr updateParticipants participants (toDescList psEvents)
   where
     updateParticipants :: (Ord p)
@@ -740,10 +766,12 @@ allParticipants EventFold {
   are projected for removal.
 -}
 projParticipants :: (Ord p) => EventFold o p e -> Set p
-projParticipants EventFold {
-    psInfimum = Infimum {participants},
-    psEvents
-  } =
+projParticipants
+    EventFold {
+      psInfimum = Infimum {participants},
+      psEvents
+    }
+  =
     foldr updateParticipants participants (toDescList psEvents)
   where
     updateParticipants :: (Ord p)

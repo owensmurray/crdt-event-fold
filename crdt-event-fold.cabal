@@ -31,3 +31,14 @@ library
   hs-source-dirs:      src
   default-language:    Haskell2010
 
+test-suite tests
+  main-is:        test.hs
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  default-language:    Haskell2010
+  build-depends:
+    base,
+    crdt-event-fold,
+
+    hspec
+

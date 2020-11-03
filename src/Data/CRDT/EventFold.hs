@@ -691,24 +691,39 @@ ackErr p ef =
   'EventId' is so that you can use it to tell when the participation
   event has reached the infimum. See also: 'infimumId'
 -}
-participate :: (Ord p)
-  => p
-  -> p
+participate :: (Ord p, Event e)
+  => p {- ^ The local participant. -}
+  -> p {- ^ The participant being added. -}
   -> EventFold o p e
-  -> (EventId p, EventFold o p e)
+  -> (EventId p, UpdateResult o p e)
 participate self peer (EventFold ef) =
   let
     eid = nextId self ef
   in
     (
       eid,
-      EventFold ef {
-        psEvents =
-          Map.insert
-            eid
-            (Identity (Join peer), mempty)
-            (psEvents ef)
-      }
+      let
+        (ef2, outputs1) =
+          acknowledge
+          self
+          ef {
+            psEvents =
+              Map.insert
+                eid
+                (Identity (Join peer), mempty)
+                (psEvents ef)
+          }
+        (ef3, outputs2) = acknowledge peer ef2
+      in
+        UpdateResult {
+          urEventFold = EventFold ef3,
+          urOutputs = Map.union outputs1 outputs2,
+          {- 
+            By definition, we have added some new information that
+            needs propagating.
+          -}
+          urNeedsPropagation = True
+        }
     )
 
 

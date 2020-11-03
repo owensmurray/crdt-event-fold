@@ -94,7 +94,7 @@ module Data.CRDT.EventFold (
     However, if your underlying data structure is large, it may be more
     efficient to just ship a sort of diff containing the information
     that the local participant thinks the remote participant might be
-    missing. That is what 'events' and 'mergeEither' are for.
+    missing. That is what 'events' and 'diffMerge' are for.
 
     Calling 'acknowledge' is important because that is the magic that
     allows CRDT garbage collection to happen. "CRDT garbage collection"
@@ -108,7 +108,7 @@ module Data.CRDT.EventFold (
   fullMerge,
   acknowledge,
   events,
-  mergeEither,
+  diffMerge,
   MergeError(..),
 
   -- ** Participation
@@ -134,7 +134,7 @@ module Data.CRDT.EventFold (
   EventFoldF,
   EventFold,
   EventId,
-  EventPack,
+  Diff,
 
 ) where
 
@@ -270,23 +270,23 @@ data MergeError o p e
       to merge 'EventFold's that have different origins because they
       do not share a common history.
     -}
-  | EventPackTooNew (EventFold o p e) (EventPack o p e)
+  | DiffTooNew (EventFold o p e) (Diff o p e)
     {- ^
-      The 'EventPack''s infimum is greater than any event known to
-      'EventFold' into which it is being merged. This should be impossible
-      and indicates that either the local 'EventFold' has rolled back an
-      event that it had previously acknowledged, or else the source of the
-      'EventPack' moved the infimum forward without a full acknowledgement
+      The `Diff`'s infimum is greater than any event known to 'EventFold'
+      into which it is being merged. This should be impossible and
+      indicates that either the local 'EventFold' has rolled back an
+      event that it had previously acknowledged, or else the source of
+      the 'Diff' moved the infimum forward without a full acknowledgement
       from all participants. Both of these conditions should be regarded
       as serious bugs.
     -}
-  | EventPackTooSparse (EventFold o p e) (EventPack o p e)
+  | DiffTooSparse (EventFold o p e) (Diff o p e)
     {- ^
-      The 'EventPack' assumes we know about events that we do not in
-      fact know about. This is only possible if we rolled back our
-      copy of the state somehow and "forgot" about state that we had
-      previous acknowledged, or else some other participant erroneously
-      acknowledged some events on our behalf.
+      The 'Diff' assumes we know about events that we do not in fact know
+      about. This is only possible if we rolled back our copy of the state
+      somehow and "forgot" about state that we had previous acknowledged,
+      or else some other participant erroneously acknowledged some events
+      on our behalf.
     -}
 deriving stock instance
     ( Show (Output e)
@@ -374,8 +374,8 @@ instance (Event a, Event b) => Event (Either a b) where
   overwrite their infimum with the infimum provided by the Full Merge.
 
   Doing a full merge can be much more expensive than doing a simple
-  'EventPack' merge, because it requires transmitting the full value of
-  the 'EventFold' instead of just the outstanding operations.
+  'Diff' merge, because it requires transmitting the full value of the
+  'EventFold' instead of just the outstanding operations.
 
   This type represents how computation of the event finished; with either a
   pure result, or some kind of system error.
@@ -417,12 +417,12 @@ new o participant =
   Get the outstanding events that need to be propagated to a particular
   participant.
 -}
-events :: (Ord p) => p -> EventFold o p e -> EventPack o p e
+events :: (Ord p) => p -> EventFold o p e -> Diff o p e
 events peer ps =
-    EventPack {
-      epEvents = omitAcknowledged <$> psEvents ps,
-      epOrigin = psOrigin ps,
-      epInfimum = eventId (psInfimum ps)
+    Diff {
+      diffEvents = omitAcknowledged <$> psEvents ps,
+      diffOrigin = psOrigin ps,
+      diffInfimum = eventId (psInfimum ps)
     }
   where
     {- |
@@ -440,38 +440,38 @@ events peer ps =
 
 
 {- | A package containing events that can be merged into an event fold. -}
-data EventPack o p e = EventPack {
-     epEvents :: Map (EventId p) (Maybe (Delta p e), Set p),
-     epOrigin :: o,
-    epInfimum :: EventId p
+data Diff o p e = Diff {
+     diffEvents :: Map (EventId p) (Maybe (Delta p e), Set p),
+     diffOrigin :: o,
+    diffInfimum :: EventId p
   }
   deriving stock (Generic)
 deriving stock instance (
     Show o, Show p, Show e, Show (Output e)
   ) =>
-    Show (EventPack o p e)
+    Show (Diff o p e)
 instance (
     Binary o, Binary p, Binary e, Binary (Output e)
   ) =>
-    Binary (EventPack o p e)
+    Binary (Diff o p e)
 
 
 {- |
   Like `fullMerge`, but merge a remote 'Diff' instead of a full remote
   'EventFold'.
 -}
-mergeEither :: (Eq o, Event e, Ord p)
+diffMerge :: (Eq o, Event e, Ord p)
   => EventFold o p e
-  -> EventPack o p e
+  -> Diff o p e
   -> Either
        (MergeError o p e)
        (EventFold o p e, Map (EventId p) (Output e))
 
-mergeEither EventFold {psOrigin = o1} EventPack {epOrigin = o2} | o1 /= o2 =
+diffMerge EventFold {psOrigin = o1} Diff {diffOrigin = o2} | o1 /= o2 =
   Left (DifferentOrigins o1 o2)
 
-mergeEither ps pak | tooNew =
-    Left (EventPackTooNew ps pak)
+diffMerge ps pak | tooNew =
+    Left (DiffTooNew ps pak)
   where
     maxState =
       maximum
@@ -481,9 +481,9 @@ mergeEither ps pak | tooNew =
       $ ps
 
     tooNew :: Bool
-    tooNew = maxState < epInfimum pak
+    tooNew = maxState < diffInfimum pak
 
-mergeEither orig@(EventFold o infimum d1) ep@(EventPack d2 _ i2) =
+diffMerge orig@(EventFold o infimum d1) ep@(Diff d2 _ i2) =
     case
       reduce
         i2
@@ -499,7 +499,7 @@ mergeEither orig@(EventFold o infimum d1) ep@(EventPack d2 _ i2) =
               d2
         }
     of
-      Nothing -> Left (EventPackTooSparse orig ep)
+      Nothing -> Left (DiffTooSparse orig ep)
       Just ps -> Right ps
   where
     mergeAcks :: (Ord p)
@@ -543,12 +543,12 @@ fullMerge :: (Eq o, Event e, Ord p)
   -> EventFold o p e
   -> Either (MergeError o p e) (EventFold o p e, Map (EventId p) (Output e))
 fullMerge ps (EventFold o2 i2 d2) =
-  mergeEither
+  diffMerge
     ps {psInfimum = max (psInfimum ps) i2}
-    EventPack {
-      epOrigin = o2,
-      epEvents = first (Just . runIdentity) <$> d2,
-      epInfimum = eventId i2
+    Diff {
+      diffOrigin = o2,
+      diffEvents = first (Just . runIdentity) <$> d2,
+      diffInfimum = eventId i2
     }
 
 
@@ -827,9 +827,9 @@ reduce
      {- ^
        The infimum 'EventId' as known by some node in the cluster. "Some
        node" can be different than "this node" in the case where another
-       node advanced the infimum before we did (because it knew about
-       our acknowledgement, but we didn't know about its acknowledgement)
-       and sent us an 'EventPack' with this value of the infimum. In this
+       node advanced the infimum before we did (because it knew about our
+       acknowledgement, but we didn't know about its acknowledgement)
+       and sent us an 'Diff' with this value of the infimum. In this
        case, this infimum value acts as a universal acknowledgement of
        all events coming before it.
      -}

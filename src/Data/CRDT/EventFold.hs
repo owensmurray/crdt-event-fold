@@ -688,8 +688,8 @@ ackErr p ef =
   Allow a participant to join in the distributed nature of the
   'EventFold'. Return the 'EventId' at which the participation is
   recorded, and the resulting 'EventFold'. The purpose of returning the
-  state is so that it can use it to tell when the participation event
-  has reached the infimum.
+  'EventId' is so that you can use it to tell when the participation
+  event has reached the infimum. See also: 'infimumId'
 -}
 participate :: (Ord p)
   => p
@@ -1140,7 +1140,18 @@ nextId p EventFoldF {psInfimum = Infimum {eventId}, psEvents} =
     Eid ord _ -> Eid (succ ord) p
 
 
-{- | Return 'True' if progress on the 'EventFold' is blocked on a 'SystemError'. -}
+{- |
+  Return 'True' if progress on the 'EventFold' is blocked on a
+  'SystemError'.
+
+  The implication here is that if the local copy is blocked on a
+  'SystemError', it needs to somehow arrange for remote copies to send
+  full 'EventFold's, not just 'Diff's. A 'diffMerge' is not sufficient
+  to get past the block. Only a 'fullMerge' will suffice.
+  
+  If your system is not using 'SystemError' or else not using 'Diff's,
+  then you don't ever need to worry about this function.
+-}
 isBlockedOnError :: EventFold o p e -> Bool
 isBlockedOnError (EventFold ef) =
   case Map.minView (psEvents ef) of

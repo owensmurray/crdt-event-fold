@@ -11,8 +11,8 @@ module Main (
 
 import Data.CRDT.EventFold (Event(Output, State, apply),
   EventResult(Pure), UpdateResult(urEventFold, urNeedsPropagation,
-  urOutputs), EventFold, diffMerge, divergent, event, events, fullMerge,
-  infimumValue, new, participate)
+  urOutputs), EventFold, diffMerge, disassociate, divergent, event,
+  events, fullMerge, infimumValue, new, participate)
 import Test.Hspec (describe, hspec, it, shouldBe, shouldNotBe)
 
 
@@ -196,6 +196,10 @@ main = hspec $
       show (divergent a) `shouldBe` "fromList [('b',Eid 4 'b'),('c',Eid 4 'a')]"
       show (divergent b) `shouldBe` "fromList [('a',Eid 2 'a')]"
       show (divergent c) `shouldBe` "fromList [('b',Eid 2 'a')]"
+
+      do {- A world where c leaves.  -}
+        let (_eid, r) = disassociate 'c' c
+        show (urEventFold r) `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList [(Eid 3 'a',(Identity (Event Inc),fromList \"ac\")),(Eid 4 'a',(Identity (Join 'c'),fromList \"ac\")),(Eid 5 'c',(Identity (UnJoin 'c'),fromList \"c\"))]}}"
 
       {- | 'a' sends update to 'b'.  -}
       let Right r = diffMerge 'b' b (events 'b' a)

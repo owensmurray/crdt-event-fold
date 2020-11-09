@@ -731,19 +731,38 @@ participate self peer (EventFold ef) =
   Indicate that a participant is removing itself from participating in
   the distributed 'EventFold'.
 -}
-disassociate :: (Ord p)
-  => p
-  -> p
+disassociate :: forall o p e. (Event e, Ord p)
+  => p {- ^ The peer removing itself from participation. -}
   -> EventFold o p e
-  -> EventFold o p e
-disassociate self peer (EventFold ef) =
-  EventFold ef {
-    psEvents =
-      Map.insert
-        (nextId self ef)
-        (Identity (UnJoin peer), mempty)
-        (psEvents ef)
-  }
+  -> (EventId p, UpdateResult o p e)
+disassociate peer (EventFold ef) =
+    let
+      (ef2, outputs) =
+        acknowledge
+          peer
+          ef {
+            psEvents =
+              Map.insert
+                eid
+                (Identity (UnJoin peer), mempty)
+                (psEvents ef)
+          }
+    in
+      (
+        eid,
+        UpdateResult {
+          urEventFold = EventFold ef2,
+          urOutputs = outputs,
+          {- 
+            By definition, we have added some new information that
+            needs propagating.
+          -}
+          urNeedsPropagation = True
+        }
+      )
+  where
+    eid :: EventId p
+    eid = nextId peer ef
 
 
 {- |

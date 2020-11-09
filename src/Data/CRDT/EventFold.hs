@@ -691,28 +691,25 @@ ackErr p ef =
   'EventId' is so that you can use it to tell when the participation
   event has reached the infimum. See also: 'infimumId'
 -}
-participate :: (Ord p, Event e)
+participate :: forall o p e. (Ord p, Event e)
   => p {- ^ The local participant. -}
   -> p {- ^ The participant being added. -}
   -> EventFold o p e
   -> (EventId p, UpdateResult o p e)
 participate self peer (EventFold ef) =
-  let
-    eid = nextId self ef
-  in
     (
       eid,
       let
         (ef2, outputs1) =
           acknowledge
-          self
-          ef {
-            psEvents =
-              Map.insert
-                eid
-                (Identity (Join peer), mempty)
-                (psEvents ef)
-          }
+            self
+            ef {
+              psEvents =
+                Map.insert
+                  eid
+                  (Identity (Join peer), mempty)
+                  (psEvents ef)
+            }
         (ef3, outputs2) = acknowledge peer ef2
       in
         UpdateResult {
@@ -725,25 +722,47 @@ participate self peer (EventFold ef) =
           urNeedsPropagation = True
         }
     )
+  where
+    eid :: EventId p
+    eid = nextId self ef
 
 
 {- |
   Indicate that a participant is removing itself from participating in
   the distributed 'EventFold'.
 -}
-disassociate :: (Ord p)
-  => p
-  -> p
+disassociate :: forall o p e. (Event e, Ord p)
+  => p {- ^ The peer removing itself from participation. -}
   -> EventFold o p e
-  -> EventFold o p e
-disassociate self peer (EventFold ef) =
-  EventFold ef {
-    psEvents =
-      Map.insert
-        (nextId self ef)
-        (Identity (UnJoin peer), mempty)
-        (psEvents ef)
-  }
+  -> (EventId p, UpdateResult o p e)
+disassociate peer (EventFold ef) =
+    let
+      (ef2, outputs) =
+        acknowledge
+          peer
+          ef {
+            psEvents =
+              Map.insert
+                eid
+                (Identity (UnJoin peer), mempty)
+                (psEvents ef)
+          }
+    in
+      (
+        eid,
+        UpdateResult {
+          urEventFold = EventFold ef2,
+          urOutputs = outputs,
+          {- 
+            By definition, we have added some new information that
+            needs propagating.
+          -}
+          urNeedsPropagation = True
+        }
+      )
+  where
+    eid :: EventId p
+    eid = nextId peer ef
 
 
 {- |

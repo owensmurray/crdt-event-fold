@@ -691,15 +691,12 @@ ackErr p ef =
   'EventId' is so that you can use it to tell when the participation
   event has reached the infimum. See also: 'infimumId'
 -}
-participate :: (Ord p, Event e)
+participate :: forall o p e. (Ord p, Event e)
   => p {- ^ The local participant. -}
   -> p {- ^ The participant being added. -}
   -> EventFold o p e
   -> (EventId p, UpdateResult o p e)
 participate self peer (EventFold ef) =
-  let
-    eid = nextId self ef
-  in
     (
       eid,
       let
@@ -725,6 +722,9 @@ participate self peer (EventFold ef) =
           urNeedsPropagation = True
         }
     )
+  where
+    eid :: EventId p
+    eid = nextId self ef
 
 
 {- |

@@ -705,14 +705,14 @@ participate self peer (EventFold ef) =
       let
         (ef2, outputs1) =
           acknowledge
-          self
-          ef {
-            psEvents =
-              Map.insert
-                eid
-                (Identity (Join peer), mempty)
-                (psEvents ef)
-          }
+            self
+            ef {
+              psEvents =
+                Map.insert
+                  eid
+                  (Identity (Join peer), mempty)
+                  (psEvents ef)
+            }
         (ef3, outputs2) = acknowledge peer ef2
       in
         UpdateResult {

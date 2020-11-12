@@ -622,7 +622,7 @@ data UpdateResult o p e =
                urOutputs :: Map (EventId p) (Output e),
                             {- ^
                               Any consistent outputs resulting from
-                              the merge.
+                              the update.
                             -}
       urNeedsPropagation :: Bool
                             {- ^

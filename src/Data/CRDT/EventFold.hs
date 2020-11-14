@@ -10,66 +10,100 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wmissing-deriving-strategies #-}
 
-{- |
-  Description: Garbage collected event folding CRDT.
-
-  This module provides a CRDT data structure that collects and applies
-  operations (called "events") that mutate an underlying data structure
-  (like folding).
-
-  In addition to mutating the underlying data, each operation can also
-  produce an output that can be obtained by the client. The output can be
-  either totally consistent across all replicas (which is slower), or it
-  can be returned immediately and possibly reflect an inconsistent state.
-
-  The 'EventFold' name derives from a loose analogy to folding over a list of
-  events using plain old 'foldl'. The component parts of 'foldl' are:
-
-  - A binary operator, analogous to 'apply'.
-
-  - An accumulator value, analogous to 'infimumValue'.
-
-  - A list of values to fold over, loosely analogous to "the list of
-    all future calls to 'event'".
-
-  - A return value.  There is no real analogy for the "return value".
-    Similarly to how you never actually obtain a return value if you
-    try to 'foldl' over an infinite list, 'EventFold's are meant to be
-    long-lived objects that accommodate an infinite number of calls
-    to 'event'. What you can do is inspect the current value of the
-    accumulator using 'infimumValue', or the "projected" value of the
-    accumulator using 'projectedValue' (where "projected" means "taking
-    into account all of the currently known calls to 'event' that have not
-    yet been folded into the accumulator, and which may yet turn out to to
-    have other events inserted into the middle or beginning of the list").
-
-  The 'EventFold' value itself can be thought of as an intermediate,
-  replicated, current state of the fold of an infinite list of events
-  that has not yet been fully generated.  So you can, for instance,
-  check the current accumulator value.
-
-  In a little more detail, consider the type signature of 'foldl' (for lists).
-
-  > foldl
-  >   :: (b -> a -> b) -- Analogous to 'apply', where 'a' is your 'Event'
-  >                    -- instance, and 'b' is 'State a'.
-  >
-  >   -> b             -- Loosely analogous to 'infimumValue' where
-  >                    -- progressive applications are accumulated. (I
-  >                    -- know that in the type signature of 'foldl'
-  >                    -- this is the "starting value", but imagine that
-  >                    -- for a recursive implementation of 'foldl',
-  >                    -- the child call's "starting value" is the parent
-  >                    -- call's accumulated value.)
-  >
-  >   -> [a]           -- Analogous to all outstanding or future calls to
-  >                    -- 'event'.
-  >
-  >   -> b             
-
-
--}
+{- | Description: Garbage collected event folding CRDT. -}
 module Data.CRDT.EventFold (
+  -- * Overview
+  {- |
+    This module provides a CRDT data structure that collects and applies
+    operations (called "events") that mutate an underlying data structure.
+
+    It is "Garbage Collected" in the sense that the number of operations
+    accumulated in the structure will not grow unbounded, assuming that
+    participants manage to sync their data once in a while. The size of
+    the data (as measured by the number of operations we have to store)
+    is allowed to shrink.
+
+    In addition to mutating the underlying data, each operation can
+    also produce an output that can be obtained by the client. The
+    output can be either totally consistent across all replicas (which
+    is slower), or it can be returned immediately and possibly reflect
+    an inconsistent state.
+  -}
+
+  -- ** Garbage Collection
+  {- |
+    Unlike many traditional CRDTs which always grow and never shrink,
+    'EventFold' has a mechanism for determining what consensus
+    has been reached by all of the participants, which allows us to
+    "garbage collect" events that achieved total consensus. Perhaps more
+    importantly, this allows us to produce the totally consistent output
+    for events for which total consensus has been achieved.
+
+    But there are trade offs. The big downside is that participation in the
+    distributed replication of the 'EventFold' must be strictly managed.
+
+    - The process of participating itself involves registering with an
+      existing participant, using 'participate'. You can't just send the
+      data off to some other computer and expect that now that computer
+      is participating in the CRDT. It isn't.
+    - Participants can not "restore from backup". Once they have
+      incorporated data received from other participants or generated
+      new data themselves, and that data has been transmitted to any
+      other participant, they are committed to using that result going
+      forward. Doing anything that looks like "restoring from an older
+      version" would destroy the idea that participants have reached
+      consensus on anything, and the results would be undefined and
+      almost certainly completely wrong. This library is written with
+      some limited capability to detect this situation, but it is not
+      always possible to detect it all cases. Many times you will just
+      end up with undefined behavior.
+  -}
+
+  -- ** A Belabored Analogy
+  {- |
+    The 'EventFold' name derives from a loose analogy to folding over
+    a list of events using plain old 'foldl'. The component parts of
+    'foldl' are:
+
+    - A binary operator, analogous to 'apply'.
+
+    - An accumulator value, analogous to 'infimumValue'.
+
+    - A list of values to fold over, loosely analogous to "the list of
+      all future calls to 'event'".
+
+    - A return value.  There is no real analogy for the "return value".
+      Similarly to how you never actually obtain a return value if you
+      try to 'foldl' over an infinite list, 'EventFold's are meant to be
+      long-lived objects that accommodate an infinite number of calls
+      to 'event'. What you can do is inspect the current value of the
+      accumulator using 'infimumValue', or the "projected" value of
+      the accumulator using 'projectedValue' (where "projected" means
+      "taking into account all of the currently known calls to 'event'
+      that have not yet been folded into the accumulator, and which may
+      yet turn out to to have other events inserted into the middle or
+      beginning of the list").
+
+    The 'EventFold' value itself can be thought of as an intermediate,
+    replicated, current state of the fold of an infinite list of events
+    that has not yet been fully generated.  So you can, for instance,
+    check the current accumulator value.
+
+    In a little more detail, consider the type signature of 'foldl'
+    (for lists).
+
+    > foldl
+    >   :: (b -> a -> b) -- Analogous to 'apply', where 'a' is your 'Event'
+    >                    -- instance, and 'b' is 'State a'.
+    >
+    >   -> b             -- Loosely analogous to 'infimumValue' where
+    >                    -- progressive applications are accumulated.
+    >
+    >   -> [a]           -- Analogous to all outstanding or future calls to
+    >                    -- 'event'.
+    >
+    >   -> b             
+  -}
   -- * Basic API
   -- ** Creating new CRDTs
   new,
@@ -263,7 +297,7 @@ instance Default (EventId p) where
 
 {- |
   This is the exception type for illegal merges. These errors indicate
-  a serious programming bugs.
+  serious programming bugs.
 -}
 data MergeError o p e
   = DifferentOrigins o o
@@ -382,11 +416,13 @@ instance (Event a, Event b) => Event (Either a b) where
   This type represents how computation of the event finished; with either a
   pure result, or some kind of system error.
 
+  TL;DR:
+
   In general 'SystemError' is probably only ever useful for when your
   event type somehow executes untrusted code (for instance when your event
   type is a Turing-complete DSL that allows users to submit their own
-  custom-programmed "events") and you want to limit the resources that can
-  be consumed by such user-generated code.  It is much less useful when
+  custom-programmed "events") and you want to limit the resources that
+  can be consumed by such untrusted code.  It is much less useful when
   you are encoding some well defined business logic directly in Haskell.
 -}
 data EventResult e
@@ -460,7 +496,7 @@ instance (
 
 
 {- |
-  Like `fullMerge`, but merge a remote 'Diff' instead of a full remote
+  Like 'fullMerge', but merge a remote 'Diff' instead of a full remote
   'EventFold'.
 -}
 diffMerge
@@ -470,9 +506,9 @@ diffMerge
      , Event e
      , Ord p
      )
-  => p
-  -> EventFold o p e
-  -> Diff o p e
+  => p {- ^ The "local" participant doing the merge. -}
+  -> EventFold o p e {- ^ The local copy of the 'EventFold'. -}
+  -> Diff o p e {- ^ The 'Diff' provided by the remote participant. -}
   -> Either
        (MergeError o p e)
        (UpdateResult o p e)
@@ -561,10 +597,12 @@ diffMerge
 
 {- |
   Monotonically merge the information in two 'EventFold's.  The resulting
-  'EventFold' may have a higher infimum value, but it will never have
-  a lower one. Only 'EventFold's that originated from the same 'new'
-  call can be merged. If the origins are mismatched, or if there is some
-  other programming error detected, then an error will be returned.
+  'EventFold' may have a higher infimum value, but it will never have a
+  lower one (where "higher" and "lower" are measured by 'infimumId' value,
+  not the value of the underlying data structure). Only 'EventFold's
+  that originated from the same 'new' call can be merged. If the origins
+  are mismatched, or if there is some other programming error detected,
+  then an error will be returned.
 
   Returns the new 'EventFold' value, along with the output for all of
   the events that can now be considered "fully consistent".
@@ -576,9 +614,9 @@ fullMerge
      , Event e
      , Ord p
      )
-  => p {- ^ The participant doing the merge. -}
-  -> EventFold o p e
-  -> EventFold o p e
+  => p {- ^ The "local" participant doing the merge. -}
+  -> EventFold o p e {- ^ The local copy of the 'EventFold'. -}
+  -> EventFold o p e {- ^ The remote copy of the 'Eventfold'. -}
   -> Either (MergeError o p e) (UpdateResult o p e)
 fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
   case
@@ -609,11 +647,13 @@ fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
 
 
 {- |
-  The result updating the 'EventFold', which is some information
-  containing the new 'EventFold' value, the outputs of events that have
-  reached the infimum as a result of update (i.e. "totally consistent
-  outputs"), and a flag indicating whether the other participants need
-  to hear about the changes.
+  The result updating the 'EventFold', which contains:
+
+  - The new 'EventFold' value,
+  - The outputs of events that have reached the infimum as a result of
+    the update (i.e. "totally consistent outputs"),
+  - And a flag indicating whether the other participants need to hear
+    about the changes.
 -}
 data UpdateResult o p e =
     UpdateResult {

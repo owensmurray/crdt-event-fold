@@ -12,7 +12,7 @@
 
 {- | Description: Monadic interaction with an EventFold. -}
 module Data.CRDT.EventFold.Monad (
-  MonadEventFold(..),
+  MonadUpdateEF(..),
   EventFoldT,
   runEventFoldT,
 ) where
@@ -36,7 +36,7 @@ import qualified Data.CRDT.EventFold as EF (diffMerge, disassociate,
   - The accumulated consistent outputs.
   - Whether the 'EventFold' needs to be propagated to other participants.
 -}
-class MonadEventFold o p e m | m -> o p e where
+class MonadUpdateEF o p e m | m -> o p e where
   {- | Apply an event. See 'EF.event'. -}
   event :: e -> m (Output e, EventId p)
 
@@ -56,7 +56,7 @@ class MonadEventFold o p e m | m -> o p e where
   {- | Remove a peer from participation. See 'EF.disassociate'. -}
   disassociate :: p -> m (EventId p)
 
-{- | A transformer providing 'MonadEventFold'. -}
+{- | A transformer providing 'MonadUpdateEF'. -}
 newtype EventFoldT o p e m a = EventFoldT {
     unEventFoldT ::
       StateT (UpdateResult o p e) (
@@ -80,7 +80,7 @@ instance
     , Ord p
     )
   =>
-    MonadEventFold o p e (EventFoldT o p e m)
+    MonadUpdateEF o p e (EventFoldT o p e m)
   where
     event e =
       withEF

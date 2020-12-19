@@ -184,7 +184,8 @@ data EventFoldF o p e f = EventFoldF {
      psOrigin :: o,
     psInfimum :: Infimum (State e) p,
      psEvents :: Map (EventId p) (f (Delta p e), Set p)
-  } deriving stock (Generic)
+  }
+  deriving stock (Generic)
 deriving stock instance
     ( Eq (f (Delta p e))
     , Eq (Output e)
@@ -262,7 +263,8 @@ data Infimum s p = Infimum {
          eventId :: EventId p,
     participants :: Set p,
       stateValue :: s
-  } deriving stock (Generic, Show)
+  }
+  deriving stock (Generic, Show)
 instance (Binary s, Binary p) => Binary (Infimum s p)
 instance (Eq p) => Eq (Infimum s p) where
   Infimum s1 _ _ == Infimum s2 _ _ = s1 == s2

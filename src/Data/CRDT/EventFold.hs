@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -168,13 +169,12 @@ module Data.CRDT.EventFold (
 import Data.Bifunctor (first)
 import Data.Binary (Binary(get, put))
 import Data.Default.Class (Default(def))
-import Data.DoubleWord (Word128(Word128), Word256(Word256))
 import Data.Functor.Identity (Identity(Identity), runIdentity)
 import Data.Map (Map, keys, toAscList, toDescList, unionWith)
 import Data.Maybe (catMaybes)
 import Data.Set ((\\), Set, member, union)
-import Data.Word (Word64)
 import GHC.Generics (Generic)
+import qualified Data.DoubleWord as DW
 import qualified Data.Map as Map
 import qualified Data.Map.Merge.Lazy as Map.Merge
 import qualified Data.Set as Set
@@ -279,21 +279,23 @@ data EventId p
   = BottomEid
   | Eid Word256 p
   deriving stock (Generic, Eq, Ord, Show)
-instance (Binary p) => Binary (EventId p) where
-  put = put . toMaybe
-    where
-      toMaybe :: EventId p -> Maybe (Word64, Word64, Word64, Word64, p)
-      toMaybe BottomEid =
-        Nothing
-      toMaybe (Eid (Word256 (Word128 a b) (Word128 c d)) p) =
-        Just (a, b, c, d, p)
-  get = do
-    theThing <- get
-    return $ case theThing of
-      Nothing -> BottomEid
-      Just (a, b, c, d, p) -> Eid (Word256 (Word128 a b) (Word128 c d)) p
+  deriving anyclass (Binary)
 instance Default (EventId p) where
   def = BottomEid
+
+
+{- | Newtype around 'DW.Word256' to supply typeclass instances. -}
+newtype Word256 = Word256 {
+    unWord256 :: DW.Word256
+  }
+  deriving stock (Generic)
+  deriving newtype (Eq, Ord, Show, Enum, Num)
+instance Binary Word256 where
+  put (Word256 (DW.Word256 (DW.Word128 a b) (DW.Word128 c d))) =
+    put (a, b, c, d)
+  get = do
+    (a, b, c, d) <- get
+    pure (Word256 (DW.Word256 (DW.Word128 a b) (DW.Word128 c d)))
 
 
 {- |

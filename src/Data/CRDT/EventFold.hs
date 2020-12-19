@@ -9,6 +9,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wmissing-deriving-strategies #-}
+{-# OPTIONS_GHC -Wmissing-import-lists #-}
 
 {- | Description: Garbage collected event folding CRDT. -}
 module Data.CRDT.EventFold (

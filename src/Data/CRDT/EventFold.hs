@@ -166,6 +166,8 @@ module Data.CRDT.EventFold (
 ) where
 
 
+import Data.Aeson (FromJSON(parseJSON), ToJSON(toEncoding, toJSON),
+  FromJSONKey, ToJSONKey)
 import Data.Bifunctor (first)
 import Data.Binary (Binary(get, put))
 import Data.Default.Class (Default(def))
@@ -186,6 +188,8 @@ data EventFoldF o p e f = EventFoldF {
      psEvents :: Map (EventId p) (f (Delta p e), Set p)
   }
   deriving stock (Generic)
+deriving anyclass instance (ToJSON o, ToJSON p, ToJSON (State e), ToJSON (f (Delta p e))) => ToJSON (EventFoldF o p e f)
+deriving anyclass instance (Ord p, FromJSON o, FromJSON p, FromJSON (f (Delta p e)), FromJSON (State e)) => FromJSON (EventFoldF o p e f)
 deriving stock instance
     ( Eq (f (Delta p e))
     , Eq (Output e)
@@ -241,6 +245,8 @@ deriving stock instance
   difficult to detect) behavior.
 -}
 newtype EventFold o p e = EventFold { unEventFold :: EventFoldF o p e Identity}
+deriving newtype instance (ToJSON o, ToJSON p, ToJSON e, ToJSON (Output e), ToJSON (State e)) => ToJSON (EventFold o p e)
+deriving newtype instance (Ord p, FromJSON o, FromJSON p, FromJSON e, FromJSON (Output e), FromJSON (State e)) => FromJSON (EventFold o p e)
 deriving stock instance
     (Show o, Show p, Show e, Show (Output e), Show (State e))
   =>
@@ -265,6 +271,7 @@ data Infimum s p = Infimum {
       stateValue :: s
   }
   deriving stock (Generic, Show)
+  deriving anyclass (ToJSON, FromJSON)
 instance (Binary s, Binary p) => Binary (Infimum s p)
 instance (Eq p) => Eq (Infimum s p) where
   Infimum s1 _ _ == Infimum s2 _ _ = s1 == s2
@@ -281,7 +288,7 @@ data EventId p
   = BottomEid
   | Eid Word256 p
   deriving stock (Generic, Eq, Ord, Show)
-  deriving anyclass (Binary)
+  deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Binary)
 instance Default (EventId p) where
   def = BottomEid
 
@@ -292,6 +299,15 @@ newtype Word256 = Word256 {
   }
   deriving stock (Generic)
   deriving newtype (Eq, Ord, Show, Enum, Num)
+instance FromJSON Word256 where
+  parseJSON v = do
+    (a, b, c, d) <- parseJSON v
+    pure (Word256 (DW.Word256 (DW.Word128 a b) (DW.Word128 c d)))
+instance ToJSON Word256 where
+  toJSON (Word256 (DW.Word256 (DW.Word128 a b) (DW.Word128 c d))) =
+    toJSON (a, b, c, d)
+  toEncoding (Word256 (DW.Word256 (DW.Word128 a b) (DW.Word128 c d))) =
+    toEncoding (a, b, c, d)
 instance Binary Word256 where
   put (Word256 (DW.Word256 (DW.Word128 a b) (DW.Word128 c d))) =
     put (a, b, c, d)
@@ -329,6 +345,9 @@ data MergeError o p e
       or else some other participant erroneously acknowledged some events
       on our behalf.
     -}
+  deriving stock (Generic)
+deriving anyclass instance (Ord p, FromJSON o, FromJSON p, FromJSON e, FromJSON (State e), FromJSON (Output e)) => FromJSON (MergeError o p e)
+deriving anyclass instance (ToJSON o, ToJSON p, ToJSON e, ToJSON (Output e), ToJSON (State e)) => ToJSON (MergeError o p e)
 deriving stock instance
     ( Show (Output e)
     , Show o
@@ -347,6 +366,8 @@ data Delta p e
   | Event e
   | Error (Output e) (Set p)
   deriving stock (Generic)
+deriving anyclass instance (ToJSON p, ToJSON e, ToJSON (Output e)) => ToJSON (Delta p e)
+deriving anyclass instance (Ord p, FromJSON p, FromJSON e, FromJSON (Output e)) => (FromJSON (Delta p e))
 deriving stock instance (Eq p, Eq e, Eq (Output e)) => Eq (Delta p e)
 deriving stock instance (Show p, Show e, Show (Output e)) => Show (Delta p e)
 instance (Binary p, Binary e, Binary (Output e)) => Binary (Delta p e)
@@ -490,6 +511,8 @@ data Diff o p e = Diff {
     diffInfimum :: EventId p
   }
   deriving stock (Generic)
+deriving anyclass instance (ToJSON o, ToJSON p, ToJSON e, ToJSON (Output e)) => ToJSON (Diff o p e)
+deriving anyclass instance (Ord p, FromJSON o, FromJSON p, FromJSON e, FromJSON (Output e)) => FromJSON (Diff o p e)
 deriving stock instance (
     Show o, Show p, Show e, Show (Output e)
   ) =>

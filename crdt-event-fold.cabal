@@ -24,6 +24,7 @@ library
   -- other-modules:       
   -- other-extensions:    
   build-depends:
+    aeson              >= 1.4.7.1 && < 1.5,
     base               >= 4.13    && < 4.14,
     binary             >= 0.8.7.0 && < 0.9,
     containers         >= 0.6.2.1 && < 0.7,

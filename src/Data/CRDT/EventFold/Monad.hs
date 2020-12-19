@@ -12,17 +12,20 @@
 
 {- | Description: Monadic interaction with an EventFold. -}
 module Data.CRDT.EventFold.Monad (
-  MonadEventFold(..),
+  MonadUpdateEF(..),
+  MonadInspectEF(..),
   EventFoldT,
   runEventFoldT,
 ) where
 
 
+import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.Logger (MonadLogger, MonadLoggerIO)
 import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
-import Control.Monad.State (MonadState(state), StateT, runStateT)
+import Control.Monad.State (MonadState(state), StateT, gets, runStateT)
 import Control.Monad.Trans.Class (MonadTrans(lift))
 import Data.CRDT.EventFold (Event(Output), UpdateResult(UpdateResult),
-  Diff, EventFold, EventId, MergeError)
+  Diff, EventFold, EventId, MergeError, urEventFold)
 import qualified Data.CRDT.EventFold as EF (diffMerge, disassociate,
   event, fullMerge, participate)
 
@@ -36,7 +39,7 @@ import qualified Data.CRDT.EventFold as EF (diffMerge, disassociate,
   - The accumulated consistent outputs.
   - Whether the 'EventFold' needs to be propagated to other participants.
 -}
-class MonadEventFold o p e m | m -> o p e where
+class MonadUpdateEF o p e m | m -> o p e where
   {- | Apply an event. See 'EF.event'. -}
   event :: e -> m (Output e, EventId p)
 
@@ -56,7 +59,20 @@ class MonadEventFold o p e m | m -> o p e where
   {- | Remove a peer from participation. See 'EF.disassociate'. -}
   disassociate :: p -> m (EventId p)
 
-{- | A transformer providing 'MonadEventFold'. -}
+
+{- |
+  Interface for inspecting an Eventfold contained within the monadic
+  context.
+-}
+class (Monad m) => MonadInspectEF o p e m | m -> o p e where
+  efAsks :: (EventFold o p e -> a) -> m a
+  efAsks f = f <$> efAsk
+
+  efAsk :: m (EventFold o p e)
+  efAsk = efAsks id
+
+
+{- | A transformer providing 'MonadUpdateEF' and 'MonadInspectEF'. -}
 newtype EventFoldT o p e m a = EventFoldT {
     unEventFoldT ::
       StateT (UpdateResult o p e) (
@@ -67,9 +83,16 @@ newtype EventFoldT o p e m a = EventFoldT {
     ( Applicative
     , Functor
     , Monad
+    , MonadIO
+    , MonadLogger
+    , MonadLoggerIO
     )
 instance MonadTrans (EventFoldT o p e) where
   lift = EventFoldT . lift . lift
+
+instance (Monad m) => MonadInspectEF o p e (EventFoldT o p e m) where
+  efAsks f = EventFoldT $ gets (f . urEventFold)
+  efAsk = EventFoldT $ gets urEventFold
 
 instance
     ( Eq (Output e)
@@ -80,7 +103,7 @@ instance
     , Ord p
     )
   =>
-    MonadEventFold o p e (EventFoldT o p e m)
+    MonadUpdateEF o p e (EventFoldT o p e m)
   where
     event e =
       withEF

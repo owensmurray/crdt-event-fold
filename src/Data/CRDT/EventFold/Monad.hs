@@ -19,7 +19,8 @@ module Data.CRDT.EventFold.Monad (
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Logger (MonadLogger, MonadLoggerIO)
 import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
-import Control.Monad.State (MonadState(state), StateT, gets, runStateT)
+import Control.Monad.State (MonadState(state), StateT, get, gets,
+  runStateT)
 import Control.Monad.Trans.Class (MonadTrans(lift))
 import Data.CRDT.EventFold (Event(Output), UpdateResult(UpdateResult),
   Diff, EventFold, EventId, MergeError, urEventFold)
@@ -55,6 +56,9 @@ class MonadUpdateEF o p e m | m -> o p e where
 
   {- | Remove a peer from participation. See 'EF.disassociate'. -}
   disassociate :: p -> m (EventId p)
+
+  {- | Get the outstanding update results. -}
+  getResult :: m (UpdateResult o p e)
 
 
 {- |
@@ -130,6 +134,8 @@ instance
 
     disassociate participant =
       withEF (\ef _self -> EF.disassociate participant ef)
+
+    getResult = EventFoldT get
 
 
 {- |

@@ -3,9 +3,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wmissing-import-lists #-}
@@ -168,9 +165,8 @@ runEventFoldT
        of the consistent outputs, and a flag indicating whether the new
        'EventFold' value should be propagated to the other participants.
      -}
-runEventFoldT self ef action = do
+runEventFoldT self ef = do
   flip runReaderT self
   . flip runStateT (UpdateResult ef mempty False)
   . unEventFoldT 
-  $ action
 

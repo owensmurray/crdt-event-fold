@@ -42,14 +42,10 @@ class MonadUpdateEF o p e m | m -> o p e where
   event :: e -> m (Output e, EventId p)
 
   {- | Perform a full merge. See 'EF.fullMerge'. -}
-  fullMerge
-    :: EventFold o p e
-    -> m (Either (MergeError o p e) ())
+  fullMerge :: EventFold o p e -> m (Either (MergeError o p e) ())
 
   {- | Perform a diff merge. See 'EF.diffMerge'. -}
-  diffMerge
-    :: Diff o p e
-    -> m (Either (MergeError o p e) ())
+  diffMerge :: Diff o p e -> m (Either (MergeError o p e) ())
 
   {- | Allow a new participant to join in the cluster. See 'EF.participate'. -}
   participate :: p -> m (EventId p)

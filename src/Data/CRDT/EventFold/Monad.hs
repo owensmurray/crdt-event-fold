@@ -16,6 +16,7 @@ module Data.CRDT.EventFold.Monad (
 ) where
 
 
+import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Logger (MonadLogger, MonadLoggerIO)
 import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
@@ -83,6 +84,7 @@ newtype EventFoldT o p e m a = EventFoldT {
     , MonadIO
     , MonadLogger
     , MonadLoggerIO
+    , MonadThrow
     )
 instance MonadTrans (EventFoldT o p e) where
   lift = EventFoldT . lift . lift

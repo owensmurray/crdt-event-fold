@@ -16,6 +16,7 @@ module Data.CRDT.EventFold.Monad (
 ) where
 
 
+import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Logger (MonadLogger, MonadLoggerIO)
 import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
@@ -42,14 +43,10 @@ class MonadUpdateEF o p e m | m -> o p e where
   event :: e -> m (Output e, EventId p)
 
   {- | Perform a full merge. See 'EF.fullMerge'. -}
-  fullMerge
-    :: EventFold o p e
-    -> m (Either (MergeError o p e) ())
+  fullMerge :: EventFold o p e -> m (Either (MergeError o p e) ())
 
   {- | Perform a diff merge. See 'EF.diffMerge'. -}
-  diffMerge
-    :: Diff o p e
-    -> m (Either (MergeError o p e) ())
+  diffMerge :: Diff o p e -> m (Either (MergeError o p e) ())
 
   {- | Allow a new participant to join in the cluster. See 'EF.participate'. -}
   participate :: p -> m (EventId p)
@@ -87,6 +84,7 @@ newtype EventFoldT o p e m a = EventFoldT {
     , MonadIO
     , MonadLogger
     , MonadLoggerIO
+    , MonadThrow
     )
 instance MonadTrans (EventFoldT o p e) where
   lift = EventFoldT . lift . lift

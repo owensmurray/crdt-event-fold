@@ -138,6 +138,7 @@ module Data.CRDT.EventFold (
   events,
   diffMerge,
   MergeError(..),
+  acknowledge,
 
   -- ** Participation
   participate,
@@ -166,6 +167,7 @@ module Data.CRDT.EventFold (
 ) where
 
 
+import Control.Exception (Exception)
 import Data.Aeson (FromJSON(parseJSON), ToJSON(toEncoding, toJSON),
   FromJSONKey, ToJSONKey)
 import Data.Bifunctor (first)
@@ -176,6 +178,7 @@ import Data.Map (Map, keys, toAscList, toDescList, unionWith)
 import Data.Maybe (catMaybes)
 import Data.Set ((\\), Set, member, union)
 import GHC.Generics (Generic)
+import Type.Reflection (Typeable)
 import qualified Data.DoubleWord as DW
 import qualified Data.Map as Map
 import qualified Data.Map.Merge.Lazy as Map.Merge
@@ -357,6 +360,7 @@ deriving stock instance
     )
   =>
     Show (MergeError o p e)
+instance (Typeable o, Typeable p, Typeable e, Show (Output e), Show o, Show p, Show e, Show (State e)) => Exception (MergeError o p e)
 
 
 {- | `Delta` is how we represent mutations to the event fold state. -}
@@ -584,7 +588,7 @@ diffMerge
     of
       Nothing -> Left (DiffTooSparse orig ep)
       Just (ef1, outputs1) ->
-        let (ef2, outputs2) = acknowledge participant ef1
+        let (ef2, outputs2) = acknowledge_ participant ef1
         in
           Right (
             UpdateResult
@@ -664,7 +668,7 @@ fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
   of
     Left err -> Left err
     Right (UpdateResult ef outputs _prop) ->
-      let (ef2, outputs2) = acknowledge participant (unEventFold ef)
+      let (ef2, outputs2) = acknowledge_ participant (unEventFold ef)
       in
         Right (
           UpdateResult
@@ -709,11 +713,32 @@ data UpdateResult o p e =
   Returns the new 'EventFold' value, along with the output for all of
   the events that can now be considered "fully consistent".
 -}
-acknowledge :: (Event e, Ord p)
+acknowledge
+  :: ( Eq (Output e)
+     , Eq e
+     , Eq o
+     , Event e
+     , Ord p
+     )
+  => p
+  -> EventFold o p e
+  -> UpdateResult o p e
+acknowledge p (EventFold ef) =
+  let (ef2, outputs) = acknowledge_ p ef
+  in
+    UpdateResult {
+      urEventFold = EventFold ef2,
+      urOutputs = outputs,
+      urNeedsPropagation = ef /= ef2
+    }
+
+
+{- | Internal version of 'acknowledge'. -}
+acknowledge_ :: (Event e, Ord p)
   => p
   -> EventFoldF o p e Identity
   -> (EventFoldF o p e Identity, Map (EventId p) (Output e))
-acknowledge p ef =
+acknowledge_ p ef =
     {-
       First do a normal reduction, then do a special acknowledgement of the
       reduction error, if any.
@@ -768,8 +793,8 @@ participate self peer (EventFold ef) =
     (
       eid,
       let
-        (ef2, outputs1) =
-          acknowledge
+        (ef2, outputs) =
+          acknowledge_
             self
             ef {
               psEvents =
@@ -778,11 +803,10 @@ participate self peer (EventFold ef) =
                   (Identity (Join peer), mempty)
                   (psEvents ef)
             }
-        (ef3, outputs2) = acknowledge peer ef2
       in
         UpdateResult {
-          urEventFold = EventFold ef3,
-          urOutputs = Map.union outputs1 outputs2,
+          urEventFold = EventFold ef2,
+          urOutputs = outputs,
           {- 
             By definition, we have added some new information that
             needs propagating.
@@ -806,7 +830,7 @@ disassociate :: forall o p e. (Event e, Ord p)
 disassociate peer (EventFold ef) =
     let
       (ef2, outputs) =
-        acknowledge
+        acknowledge_
           peer
           ef {
             psEvents =
@@ -855,7 +879,7 @@ event p e ef =
       eid,
       let
         (ef2, outputs) =
-          acknowledge
+          acknowledge_
             p
             (
               (unEventFold ef) {

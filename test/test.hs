@@ -11,8 +11,8 @@ module Main (
 
 import Data.CRDT.EventFold (Event(Output, State, apply),
   EventResult(Pure), UpdateResult(urEventFold, urNeedsPropagation,
-  urOutputs), EventFold, diffMerge, disassociate, divergent, event,
-  events, fullMerge, infimumValue, new, participate)
+  urOutputs), EventFold, acknowledge, diffMerge, disassociate, divergent,
+  event, events, fullMerge, infimumValue, new, participate)
 import Test.Hspec (describe, hspec, it, shouldBe, shouldNotBe)
 
 
@@ -41,8 +41,16 @@ main = hspec $
       let (_eid, r) = participate 'a' 'b' a
       let a = urEventFold r
       let b = urEventFold r
+      show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = BottomEid, participants = fromList \"a\", stateValue = 0}, psEvents = fromList [(Eid 0 'a',(Identity (Join 'b'),fromList \"a\"))]}}"
+      show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = BottomEid, participants = fromList \"a\", stateValue = 0}, psEvents = fromList [(Eid 0 'a',(Identity (Join 'b'),fromList \"a\"))]}}"
+
+      let r = acknowledge 'b' b
+      let b = urEventFold r
+      let Right r = diffMerge 'a' a (events 'a' b)
+      let a = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 0 'a', participants = fromList \"ab\", stateValue = 0}, psEvents = fromList []}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 0 'a', participants = fromList \"ab\", stateValue = 0}, psEvents = fromList []}}"
+
       urOutputs r `shouldBe` mempty
       urNeedsPropagation r `shouldBe` True
       show (divergent a) `shouldBe` "fromList []"
@@ -147,6 +155,8 @@ main = hspec $
 
       {- 'c' joins on 'a' -}
       let (_eid, r) = participate 'a' 'c' a
+      let a = urEventFold r
+      let r = acknowledge 'c' a
       let a = urEventFold r
       let c = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList [(Eid 3 'a',(Identity (Event Inc),fromList \"ac\")),(Eid 4 'a',(Identity (Join 'c'),fromList \"ac\"))]}}"

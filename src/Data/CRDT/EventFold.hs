@@ -1049,7 +1049,7 @@ divergent
       (
         unionWith
           max
-          (Map.insert p eid acc)
+          (Map.insert p BottomEid acc)
           (Map.fromList [(a, eid) | a <- Set.toList acks]),
         max maxEid eid
       )

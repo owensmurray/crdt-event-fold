@@ -1012,7 +1012,9 @@ projParticipants
   this context, a participant is "diverging" if there is an event
   that the participant has not acknowledged but we are expecting it
   to acknowledge. Along with the participant, return the last known
-  `EventId` which that participant has acknowledged.
+  `EventId` which that participant has acknowledged, or 'BottomEid'
+  if the participant has a acknowledged no events, as may be the case
+  immediately after the participant joined replication.
 -}
 divergent :: forall o p e. (Ord p) => EventFold o p e -> Map p (EventId p)
 divergent

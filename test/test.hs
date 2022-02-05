@@ -11,9 +11,10 @@ module Main (
 
 import Data.CRDT.EventFold (Event(Output, State, apply),
   EventResult(Pure), UpdateResult(urEventFold, urNeedsPropagation,
-  urOutputs), EventFold, acknowledge, diffMerge, disassociate, divergent,
-  event, events, fullMerge, infimumValue, new, participate)
+  urOutputs), EventFold, acknowledge, bottomEid, diffMerge, disassociate,
+  divergent, event, events, fullMerge, infimumValue, new, participate)
 import Test.Hspec (describe, hspec, it, shouldBe, shouldNotBe)
+import qualified Data.Map as Map
 
 
 data Ops
@@ -29,7 +30,7 @@ instance Event Ops where
 
 
 main :: IO ()
-main = hspec $
+main = hspec $ do
   describe "EventFold" $
     it "works in a specific contrived scenario" $ do
       {- New crdt with the participant 'a'.  -}
@@ -321,4 +322,19 @@ main = hspec $
         show (divergent c) `shouldBe` "fromList []"
         show a `shouldBe` show b
         show a `shouldBe` show c
+
+  describe "divergent" $ do
+    it "marks an unacked join as divergent" $ do
+      let
+        a = new 0 'a' :: EventFold Int Char Ops
+        b = urEventFold . snd . participate 'a' 'b' $ a
+      divergent b `shouldBe` Map.fromList [('b', bottomEid)]
+    it "does not mark an acked join as divergent" $ do
+      let
+        a = new 0 'a' :: EventFold Int Char Ops
+        b = urEventFold . snd . participate 'a' 'b' $ a
+        c = urEventFold . snd . participate 'a' 'c' $ b
+        d = urEventFold . acknowledge 'c' $ c
+      divergent d `shouldBe` Map.fromList [('b', bottomEid)]
+
 

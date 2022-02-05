@@ -162,6 +162,7 @@ module Data.CRDT.EventFold (
   -- * Underlying Types
   EventFold,
   EventId,
+  bottomEid,
   Diff,
 
 ) where
@@ -1283,5 +1284,10 @@ isBlockedOnError (EventFold ef) =
   case Map.minView (psEvents ef) of
     Just ((Identity (Error _ _), _), _) -> True
     _ -> False
+
+
+{- | The bottom 'EventId', possibly useful for comparison in tests. -}
+bottomEid :: EventId p
+bottomEid = BottomEid
 
 

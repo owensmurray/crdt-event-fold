@@ -162,6 +162,7 @@ module Data.CRDT.EventFold (
   -- * Underlying Types
   EventFold,
   EventId,
+  bottomEid,
   Diff,
 
 ) where
@@ -1011,7 +1012,9 @@ projParticipants
   this context, a participant is "diverging" if there is an event
   that the participant has not acknowledged but we are expecting it
   to acknowledge. Along with the participant, return the last known
-  `EventId` which that participant has acknowledged.
+  `EventId` which that participant has acknowledged, or 'BottomEid'
+  if the participant has a acknowledged no events, as may be the case
+  immediately after the participant joined replication.
 -}
 divergent :: forall o p e. (Ord p) => EventFold o p e -> Map p (EventId p)
 divergent
@@ -1046,7 +1049,7 @@ divergent
       (
         unionWith
           max
-          (Map.insert p eid acc)
+          (Map.insert p BottomEid acc)
           (Map.fromList [(a, eid) | a <- Set.toList acks]),
         max maxEid eid
       )
@@ -1283,5 +1286,10 @@ isBlockedOnError (EventFold ef) =
   case Map.minView (psEvents ef) of
     Just ((Identity (Error _ _), _), _) -> True
     _ -> False
+
+
+{- | The bottom 'EventId', possibly useful for comparison in tests. -}
+bottomEid :: EventId p
+bottomEid = BottomEid
 
 

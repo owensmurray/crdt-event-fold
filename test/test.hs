@@ -1,6 +1,6 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -Wmissing-export-lists #-}
-{-# OPTIONS_GHC -Wmissing-import-lists #-}
+
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 {- | crdt-event-fold package tests. -}
@@ -20,7 +20,7 @@ import qualified Data.Map as Map
 data Ops
   = Inc
   | Dec
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance Event Ops where
   type State Ops = Int

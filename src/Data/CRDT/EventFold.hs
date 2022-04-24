@@ -688,22 +688,21 @@ fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
   - And a flag indicating whether the other participants need to hear
     about the changes.
 -}
-data UpdateResult o p e =
-    UpdateResult {
-             urEventFold :: EventFold o p e,
-                            {- ^ The new 'EventFold' value -}
-               urOutputs :: Map (EventId p) (Output e),
-                            {- ^
-                              Any consistent outputs resulting from
-                              the update.
-                            -}
-      urNeedsPropagation :: Bool
-                            {- ^
-                              'True' if any new information was added to
-                              the 'EventFold' which might need propagating
-                              to other participants.
-                            -}
-    }
+data UpdateResult o p e = UpdateResult
+  {        urEventFold :: EventFold o p e
+                          {- ^ The new 'EventFold' value -}
+  ,          urOutputs :: Map (EventId p) (Output e)
+                          {- ^
+                            Any consistent outputs resulting from
+                            the update.
+                          -}
+  , urNeedsPropagation :: Bool
+                          {- ^
+                            'True' if any new information was added to
+                            the 'EventFold' which might need propagating
+                            to other participants.
+                          -}
+  }
 
 
 {- |

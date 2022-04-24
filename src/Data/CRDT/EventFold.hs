@@ -372,7 +372,7 @@ instance (Typeable o, Typeable p, Typeable e, Show (Output e), Show o, Show p, S
 data Delta p e
   = Join p
   | UnJoin p
-  | Event e
+  | EventD e
   | Error (Output e) (Set p)
   deriving stock (Generic)
 deriving anyclass instance (ToJSON p, ToJSON e, ToJSON (Output e)) => ToJSON (Delta p e)
@@ -946,7 +946,7 @@ event p e ef =
                 psEvents =
                   Map.insert
                     eid
-                    (Identity (Event e), mempty)
+                    (Identity (EventD e), mempty)
                     (psEvents (unEventFold ef))
               }
             )
@@ -986,7 +986,7 @@ projectedValue
       case d of
         Join p -> join @p @e p s
         UnJoin p -> unjoin @p @e p s
-        Event e ->
+        EventD e ->
           case apply @p e s of
             Pure _ newState -> newState
             SystemError _ -> s
@@ -1243,7 +1243,7 @@ reduce
                             },
                             mempty
                           )
-                  Event e ->
+                  EventD e ->
                     case apply @p e stateValue of
                       SystemError output -> do
                         events_ <- runEvents newDeltas

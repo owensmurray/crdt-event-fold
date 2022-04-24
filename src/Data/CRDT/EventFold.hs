@@ -721,7 +721,7 @@ fullMerge_ (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
         UpdateResult
           ef
           outputs
-          (ef /= (EventFold left) || ef /= (EventFold right))
+          (ef /= EventFold left || ef /= EventFold right)
       )
 
 
@@ -909,7 +909,11 @@ disassociate peer (EventFold ef) =
   event, along with an 'EventId' which can be used to get the fully
   consistent event output at a later time.
 -}
-event :: (Ord p, Event e)
+event
+  :: forall o p e.
+     ( Event e
+     , Ord p
+     )
   => p
   -> e
   -> EventFold o p e

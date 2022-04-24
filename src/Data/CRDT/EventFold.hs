@@ -134,9 +134,11 @@ module Data.CRDT.EventFold (
     missing. That is what 'events' and 'diffMerge' are for.
   -}
   fullMerge,
+  fullMerge_,
   UpdateResult(..),
   events,
   diffMerge,
+  diffMerge_,
   MergeError(..),
   acknowledge,
 
@@ -546,14 +548,41 @@ diffMerge
        (MergeError o p e)
        (UpdateResult o p e)
 
-diffMerge
-    _
+diffMerge participant orig ep =
+  case diffMerge_ orig ep of
+    Left err -> Left err
+    Right (UpdateResult ef1 outputs1 prop1) ->
+      let UpdateResult ef2 outputs2 prop2 = acknowledge participant ef1
+      in
+        Right (
+          UpdateResult
+            ef2
+            (Map.union outputs1 outputs2)
+            (prop1 || prop2)
+        )
+
+
+{- | Like 'diffMerge', but without automatic acknowledgement. -}
+diffMerge_
+  :: ( Eq (Output e)
+     , Eq e
+     , Eq o
+     , Event e
+     , Ord p
+     )
+  => EventFold o p e {- ^ The local copy of the 'EventFold'. -}
+  -> Diff o p e {- ^ The 'Diff' provided by the remote participant. -}
+  -> Either
+       (MergeError o p e)
+       (UpdateResult o p e)
+
+diffMerge_
     (EventFold EventFoldF {psOrigin = o1})
     Diff {diffOrigin = o2}
   | o1 /= o2 =
     Left (DifferentOrigins o1 o2)
 
-diffMerge _ ef pak | tooNew =
+diffMerge_ ef pak | tooNew =
     Left (DiffTooNew ef pak)
   where
     maxState =
@@ -567,8 +596,7 @@ diffMerge _ ef pak | tooNew =
     tooNew :: Bool
     tooNew = maxState < diffInfimum pak
 
-diffMerge
-    participant
+diffMerge_
     orig@(EventFold (EventFoldF o infimum d1))
     ep@(Diff d2 _ i2)
   =
@@ -588,19 +616,17 @@ diffMerge
         }
     of
       Nothing -> Left (DiffTooSparse orig ep)
-      Just (ef1, outputs1) ->
-        let (ef2, outputs2) = acknowledge_ participant ef1
-        in
-          Right (
-            UpdateResult
-              (EventFold ef2)
-              (Map.union outputs1 outputs2)
-              (
-                i2 /= eventId infimum
-                || not (Map.null d2)
-                || ef2 /= unEventFold orig
-              )
-          )
+      Just (ef, outputs) ->
+        Right (
+          UpdateResult
+            (EventFold ef)
+            outputs
+            (
+              i2 /= eventId infimum
+              || not (Map.null d2)
+              || ef /= unEventFold orig
+            )
+        )
   where
     mergeAcks :: (Ord p)
       => (Delta p e, Set p)
@@ -651,10 +677,34 @@ fullMerge
   -> EventFold o p e {- ^ The local copy of the 'EventFold'. -}
   -> EventFold o p e {- ^ The remote copy of the 'Eventfold'. -}
   -> Either (MergeError o p e) (UpdateResult o p e)
-fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
+fullMerge participant left right =
+  case fullMerge_ left right of
+    Left err -> Left err
+    Right (UpdateResult ef1 outputs1 _) ->
+      let UpdateResult ef2 outputs2 _ = acknowledge participant ef1
+      in
+        Right (
+          UpdateResult
+            ef2
+            (Map.union outputs1 outputs2)
+            (ef2 /= left || ef2 /= right)
+        )
+
+
+{- | Like 'fullMerge', but without the automatic acknowlegement.  -}
+fullMerge_
+  :: ( Eq (Output e)
+     , Eq e
+     , Eq o
+     , Event e
+     , Ord p
+     )
+  => EventFold o p e {- ^ The local copy of the 'EventFold'. -}
+  -> EventFold o p e {- ^ The remote copy of the 'Eventfold'. -}
+  -> Either (MergeError o p e) (UpdateResult o p e)
+fullMerge_ (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
   case
-    diffMerge
-      participant
+    diffMerge_
       (
         EventFold
           left {
@@ -669,14 +719,12 @@ fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
   of
     Left err -> Left err
     Right (UpdateResult ef outputs _prop) ->
-      let (ef2, outputs2) = acknowledge_ participant (unEventFold ef)
-      in
-        Right (
-          UpdateResult
-            (EventFold ef2)
-            (Map.union outputs outputs2)
-            (ef2 /= left || ef2 /= right)
-        )
+      Right (
+        UpdateResult
+          ef
+          outputs
+          (ef /= (EventFold left) || ef /= (EventFold right))
+      )
 
 
 {- |

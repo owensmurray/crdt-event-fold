@@ -1,12 +1,16 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -387,27 +391,33 @@ instance (Binary p, Binary e, Binary (Output e)) => Binary (Delta p e)
 
   TL;DR: This is how users define their own custom operations.
 -}
-class Event e where
+class Event p e where
   type Output e
   type State e
   {- | Apply an event to a state value. **This function MUST be total!!!** -}
   apply :: e -> State e -> EventResult e
+
+  join :: p -> State e -> State e
+  join _ s = s
+
+  unjoin :: p -> State e -> State e
+  unjoin _ s = s
 {- | The most trivial event type. -}
-instance Event () where
+instance Event p () where
   type Output () = ()
   type State () = ()
   apply () () = Pure () ()
 {- | The union of two event types. -}
-instance (Event a, Event b) => Event (Either a b) where
+instance (Event p a, Event p b) => Event p (Either a b) where
   type Output (Either a b) = Either (Output a) (Output b)
   type State (Either a b) = (State a, State b)
 
   apply (Left e) (a, b) = 
-    case apply e a of
+    case apply @p e a of
       SystemError o -> SystemError (Left o)
       Pure o s -> Pure (Left o) (s, b)
   apply (Right e) (a, b) = 
-    case apply e b of
+    case apply @p e b of
       SystemError o -> SystemError (Right o)
       Pure o s -> Pure (Right o) (a, s)
 
@@ -536,7 +546,7 @@ diffMerge
   :: ( Eq (Output e)
      , Eq e
      , Eq o
-     , Event e
+     , Event p e
      , Ord p
      )
   => p {- ^ The "local" participant doing the merge. -}
@@ -565,7 +575,7 @@ diffMerge_
   :: ( Eq (Output e)
      , Eq e
      , Eq o
-     , Event e
+     , Event p e
      , Ord p
      )
   => EventFold o p e {- ^ The local copy of the 'EventFold'. -}
@@ -668,7 +678,7 @@ fullMerge
   :: ( Eq (Output e)
      , Eq e
      , Eq o
-     , Event e
+     , Event p e
      , Ord p
      )
   => p {- ^ The "local" participant doing the merge. -}
@@ -694,7 +704,7 @@ fullMerge_
   :: ( Eq (Output e)
      , Eq e
      , Eq o
-     , Event e
+     , Event p e
      , Ord p
      )
   => EventFold o p e {- ^ The local copy of the 'EventFold'. -}
@@ -763,7 +773,7 @@ acknowledge
   :: ( Eq (Output e)
      , Eq e
      , Eq o
-     , Event e
+     , Event p e
      , Ord p
      )
   => p
@@ -780,7 +790,7 @@ acknowledge p (EventFold ef) =
 
 
 {- | Internal version of 'acknowledge'. -}
-acknowledge_ :: (Event e, Ord p)
+acknowledge_ :: (Event p e, Ord p)
   => p
   -> EventFoldF o p e Identity
   -> (EventFoldF o p e Identity, Map (EventId p) (Output e))
@@ -803,7 +813,7 @@ acknowledge_ p ef =
 
 
 {- | Acknowledge the reduction error, if one exists. -}
-ackErr :: (Event e, Ord p)
+ackErr :: (Event p e, Ord p)
   => p
   -> EventFoldF o p e Identity
   -> (EventFoldF o p e Identity, Map (EventId p) (Output e))
@@ -830,7 +840,7 @@ ackErr p ef =
   'EventId' is so that you can use it to tell when the participation
   event has reached the infimum. See also: 'infimumId'
 -}
-participate :: forall o p e. (Ord p, Event e)
+participate :: forall o p e. (Ord p, Event p e)
   => p {- ^ The local participant. -}
   -> p {- ^ The participant being added. -}
   -> EventFold o p e
@@ -869,7 +879,7 @@ participate self peer (EventFold ef) =
   Indicate that a participant is removing itself from participating in
   the distributed 'EventFold'.
 -}
-disassociate :: forall o p e. (Event e, Ord p)
+disassociate :: forall o p e. (Event p e, Ord p)
   => p {- ^ The peer removing itself from participation. -}
   -> EventFold o p e
   -> (EventId p, UpdateResult o p e)
@@ -911,7 +921,7 @@ disassociate peer (EventFold ef) =
 -}
 event
   :: forall o p e.
-     ( Event e
+     ( Event p e
      , Ord p
      )
   => p
@@ -923,7 +933,7 @@ event p e ef =
     eid = nextId p (unEventFold ef)
   in
     (
-      case apply e (projectedValue ef) of
+      case apply @p e (projectedValue ef) of
         Pure output _ -> output
         SystemError output -> output,
       eid,
@@ -956,7 +966,7 @@ event p e ef =
 
 
 {- | Return the current projected value of the 'EventFold'. -}
-projectedValue :: (Event e) => EventFold o p e -> State e
+projectedValue :: forall o p e. (Event p e) => EventFold o p e -> State e
 projectedValue
     (
       EventFold
@@ -967,18 +977,23 @@ projectedValue
     )
   =
     foldr
-      (\ e s ->
-        case apply e s of
-          Pure _ newState -> newState
-          SystemError _ -> s
-      )
+      applyDelta
       stateValue
       changes
   where
-    changes = foldMap getDelta (toDescList psEvents)
-    getDelta :: (EventId p, (Identity (Delta p e), Set p)) -> [e]
-    getDelta (_, (Identity (Event e), _)) = [e]
-    getDelta _ = mempty
+    applyDelta :: Delta p e -> State e -> State e
+    applyDelta d s =
+      case d of
+        Join p -> join @p @e p s
+        UnJoin p -> unjoin @p @e p s
+        Event e ->
+          case apply @p e s of
+            Pure _ newState -> newState
+            SystemError _ -> s
+        Error{} -> s
+
+    changes :: [Delta p e]
+    changes = runIdentity . fst . snd <$> toDescList psEvents
 
 
 {- | Return the current infimum value of the 'EventFold'. -}
@@ -1125,7 +1140,7 @@ origin = psOrigin . unEventFold
 -}
 reduce
   :: forall o p e f.
-     ( Event e
+     ( Event p e
      , Monad f
      , Ord p
      )
@@ -1182,6 +1197,10 @@ reduce
                   Join p -> Set.singleton p
                   _ -> mempty
             if
+                {-
+                  This branch means to roll the update into the
+                  infimum. The @else@ branch means we do not.
+                -}
                 Set.null (((participants `union` joining) \\ acks) \\ implicitAcks)
                 || eid <= infState
               then
@@ -1190,7 +1209,8 @@ reduce
                     reduce infState ef {
                       psInfimum = infimum {
                           eventId = eid,
-                          participants = Set.insert p participants
+                          participants = Set.insert p participants,
+                          stateValue = join @p @e p stateValue
                         },
                       psEvents = newDeltas
                     }
@@ -1198,7 +1218,8 @@ reduce
                     reduce infState ef {
                       psInfimum = infimum {
                           eventId = eid,
-                          participants = Set.delete p participants
+                          participants = Set.delete p participants,
+                          stateValue = unjoin @p @e p stateValue
                         },
                       psEvents = newDeltas
                     }
@@ -1223,7 +1244,7 @@ reduce
                             mempty
                           )
                   Event e ->
-                    case apply e stateValue of
+                    case apply @p e stateValue of
                       SystemError output -> do
                         events_ <- runEvents newDeltas
                         pure

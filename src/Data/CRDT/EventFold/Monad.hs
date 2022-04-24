@@ -97,7 +97,7 @@ instance
     ( Eq (Output e)
     , Eq e
     , Eq o
-    , Event e
+    , Event p e
     , Monad m
     , Ord p
     )

@@ -1,5 +1,7 @@
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
+
 
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
@@ -22,7 +24,7 @@ data Ops
   | Dec
   deriving stock (Eq, Show)
 
-instance Event Ops where
+instance Event Char Ops where
   type State Ops = Int
   type Output Ops = Int
   apply Inc state = Pure state (succ state)

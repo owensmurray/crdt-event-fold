@@ -1,16 +1,18 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -Wmissing-deriving-strategies #-}
-{-# OPTIONS_GHC -Wmissing-import-lists #-}
 
 {- | Description: Garbage collected event folding CRDT. -}
 module Data.CRDT.EventFold (
@@ -134,9 +136,11 @@ module Data.CRDT.EventFold (
     missing. That is what 'events' and 'diffMerge' are for.
   -}
   fullMerge,
+  fullMerge_,
   UpdateResult(..),
   events,
   diffMerge,
+  diffMerge_,
   MergeError(..),
   acknowledge,
 
@@ -368,7 +372,7 @@ instance (Typeable o, Typeable p, Typeable e, Show (Output e), Show o, Show p, S
 data Delta p e
   = Join p
   | UnJoin p
-  | Event e
+  | EventD e
   | Error (Output e) (Set p)
   deriving stock (Generic)
 deriving anyclass instance (ToJSON p, ToJSON e, ToJSON (Output e)) => ToJSON (Delta p e)
@@ -387,27 +391,33 @@ instance (Binary p, Binary e, Binary (Output e)) => Binary (Delta p e)
 
   TL;DR: This is how users define their own custom operations.
 -}
-class Event e where
+class Event p e where
   type Output e
   type State e
   {- | Apply an event to a state value. **This function MUST be total!!!** -}
   apply :: e -> State e -> EventResult e
+
+  join :: p -> State e -> State e
+  join _ s = s
+
+  unjoin :: p -> State e -> State e
+  unjoin _ s = s
 {- | The most trivial event type. -}
-instance Event () where
+instance Event p () where
   type Output () = ()
   type State () = ()
   apply () () = Pure () ()
 {- | The union of two event types. -}
-instance (Event a, Event b) => Event (Either a b) where
+instance (Event p a, Event p b) => Event p (Either a b) where
   type Output (Either a b) = Either (Output a) (Output b)
   type State (Either a b) = (State a, State b)
 
   apply (Left e) (a, b) = 
-    case apply e a of
+    case apply @p e a of
       SystemError o -> SystemError (Left o)
       Pure o s -> Pure (Left o) (s, b)
   apply (Right e) (a, b) = 
-    case apply e b of
+    case apply @p e b of
       SystemError o -> SystemError (Right o)
       Pure o s -> Pure (Right o) (a, s)
 
@@ -536,7 +546,7 @@ diffMerge
   :: ( Eq (Output e)
      , Eq e
      , Eq o
-     , Event e
+     , Event p e
      , Ord p
      )
   => p {- ^ The "local" participant doing the merge. -}
@@ -546,14 +556,41 @@ diffMerge
        (MergeError o p e)
        (UpdateResult o p e)
 
-diffMerge
-    _
+diffMerge participant orig ep =
+  case diffMerge_ orig ep of
+    Left err -> Left err
+    Right (UpdateResult ef1 outputs1 prop1) ->
+      let UpdateResult ef2 outputs2 prop2 = acknowledge participant ef1
+      in
+        Right (
+          UpdateResult
+            ef2
+            (Map.union outputs1 outputs2)
+            (prop1 || prop2)
+        )
+
+
+{- | Like 'diffMerge', but without automatic acknowledgement. -}
+diffMerge_
+  :: ( Eq (Output e)
+     , Eq e
+     , Eq o
+     , Event p e
+     , Ord p
+     )
+  => EventFold o p e {- ^ The local copy of the 'EventFold'. -}
+  -> Diff o p e {- ^ The 'Diff' provided by the remote participant. -}
+  -> Either
+       (MergeError o p e)
+       (UpdateResult o p e)
+
+diffMerge_
     (EventFold EventFoldF {psOrigin = o1})
     Diff {diffOrigin = o2}
   | o1 /= o2 =
     Left (DifferentOrigins o1 o2)
 
-diffMerge _ ef pak | tooNew =
+diffMerge_ ef pak | tooNew =
     Left (DiffTooNew ef pak)
   where
     maxState =
@@ -567,8 +604,7 @@ diffMerge _ ef pak | tooNew =
     tooNew :: Bool
     tooNew = maxState < diffInfimum pak
 
-diffMerge
-    participant
+diffMerge_
     orig@(EventFold (EventFoldF o infimum d1))
     ep@(Diff d2 _ i2)
   =
@@ -588,19 +624,17 @@ diffMerge
         }
     of
       Nothing -> Left (DiffTooSparse orig ep)
-      Just (ef1, outputs1) ->
-        let (ef2, outputs2) = acknowledge_ participant ef1
-        in
-          Right (
-            UpdateResult
-              (EventFold ef2)
-              (Map.union outputs1 outputs2)
-              (
-                i2 /= eventId infimum
-                || not (Map.null d2)
-                || ef2 /= unEventFold orig
-              )
-          )
+      Just (ef, outputs) ->
+        Right (
+          UpdateResult
+            (EventFold ef)
+            outputs
+            (
+              i2 /= eventId infimum
+              || not (Map.null d2)
+              || ef /= unEventFold orig
+            )
+        )
   where
     mergeAcks :: (Ord p)
       => (Delta p e, Set p)
@@ -644,17 +678,41 @@ fullMerge
   :: ( Eq (Output e)
      , Eq e
      , Eq o
-     , Event e
+     , Event p e
      , Ord p
      )
   => p {- ^ The "local" participant doing the merge. -}
   -> EventFold o p e {- ^ The local copy of the 'EventFold'. -}
   -> EventFold o p e {- ^ The remote copy of the 'Eventfold'. -}
   -> Either (MergeError o p e) (UpdateResult o p e)
-fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
+fullMerge participant left right =
+  case fullMerge_ left right of
+    Left err -> Left err
+    Right (UpdateResult ef1 outputs1 _) ->
+      let UpdateResult ef2 outputs2 _ = acknowledge participant ef1
+      in
+        Right (
+          UpdateResult
+            ef2
+            (Map.union outputs1 outputs2)
+            (ef2 /= left || ef2 /= right)
+        )
+
+
+{- | Like 'fullMerge', but without the automatic acknowlegement.  -}
+fullMerge_
+  :: ( Eq (Output e)
+     , Eq e
+     , Eq o
+     , Event p e
+     , Ord p
+     )
+  => EventFold o p e {- ^ The local copy of the 'EventFold'. -}
+  -> EventFold o p e {- ^ The remote copy of the 'Eventfold'. -}
+  -> Either (MergeError o p e) (UpdateResult o p e)
+fullMerge_ (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
   case
-    diffMerge
-      participant
+    diffMerge_
       (
         EventFold
           left {
@@ -669,14 +727,12 @@ fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
   of
     Left err -> Left err
     Right (UpdateResult ef outputs _prop) ->
-      let (ef2, outputs2) = acknowledge_ participant (unEventFold ef)
-      in
-        Right (
-          UpdateResult
-            (EventFold ef2)
-            (Map.union outputs outputs2)
-            (ef2 /= left || ef2 /= right)
-        )
+      Right (
+        UpdateResult
+          ef
+          outputs
+          (ef /= EventFold left || ef /= EventFold right)
+      )
 
 
 {- |
@@ -688,22 +744,21 @@ fullMerge participant (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
   - And a flag indicating whether the other participants need to hear
     about the changes.
 -}
-data UpdateResult o p e =
-    UpdateResult {
-             urEventFold :: EventFold o p e,
-                            {- ^ The new 'EventFold' value -}
-               urOutputs :: Map (EventId p) (Output e),
-                            {- ^
-                              Any consistent outputs resulting from
-                              the update.
-                            -}
-      urNeedsPropagation :: Bool
-                            {- ^
-                              'True' if any new information was added to
-                              the 'EventFold' which might need propagating
-                              to other participants.
-                            -}
-    }
+data UpdateResult o p e = UpdateResult
+  {        urEventFold :: EventFold o p e
+                          {- ^ The new 'EventFold' value -}
+  ,          urOutputs :: Map (EventId p) (Output e)
+                          {- ^
+                            Any consistent outputs resulting from
+                            the update.
+                          -}
+  , urNeedsPropagation :: Bool
+                          {- ^
+                            'True' if any new information was added to
+                            the 'EventFold' which might need propagating
+                            to other participants.
+                          -}
+  }
 
 
 {- |
@@ -718,7 +773,7 @@ acknowledge
   :: ( Eq (Output e)
      , Eq e
      , Eq o
-     , Event e
+     , Event p e
      , Ord p
      )
   => p
@@ -735,7 +790,7 @@ acknowledge p (EventFold ef) =
 
 
 {- | Internal version of 'acknowledge'. -}
-acknowledge_ :: (Event e, Ord p)
+acknowledge_ :: (Event p e, Ord p)
   => p
   -> EventFoldF o p e Identity
   -> (EventFoldF o p e Identity, Map (EventId p) (Output e))
@@ -758,7 +813,7 @@ acknowledge_ p ef =
 
 
 {- | Acknowledge the reduction error, if one exists. -}
-ackErr :: (Event e, Ord p)
+ackErr :: (Event p e, Ord p)
   => p
   -> EventFoldF o p e Identity
   -> (EventFoldF o p e Identity, Map (EventId p) (Output e))
@@ -785,7 +840,7 @@ ackErr p ef =
   'EventId' is so that you can use it to tell when the participation
   event has reached the infimum. See also: 'infimumId'
 -}
-participate :: forall o p e. (Ord p, Event e)
+participate :: forall o p e. (Ord p, Event p e)
   => p {- ^ The local participant. -}
   -> p {- ^ The participant being added. -}
   -> EventFold o p e
@@ -824,7 +879,7 @@ participate self peer (EventFold ef) =
   Indicate that a participant is removing itself from participating in
   the distributed 'EventFold'.
 -}
-disassociate :: forall o p e. (Event e, Ord p)
+disassociate :: forall o p e. (Event p e, Ord p)
   => p {- ^ The peer removing itself from participation. -}
   -> EventFold o p e
   -> (EventId p, UpdateResult o p e)
@@ -864,7 +919,11 @@ disassociate peer (EventFold ef) =
   event, along with an 'EventId' which can be used to get the fully
   consistent event output at a later time.
 -}
-event :: (Ord p, Event e)
+event
+  :: forall o p e.
+     ( Event p e
+     , Ord p
+     )
   => p
   -> e
   -> EventFold o p e
@@ -874,7 +933,7 @@ event p e ef =
     eid = nextId p (unEventFold ef)
   in
     (
-      case apply e (projectedValue ef) of
+      case apply @p e (projectedValue ef) of
         Pure output _ -> output
         SystemError output -> output,
       eid,
@@ -887,7 +946,7 @@ event p e ef =
                 psEvents =
                   Map.insert
                     eid
-                    (Identity (Event e), mempty)
+                    (Identity (EventD e), mempty)
                     (psEvents (unEventFold ef))
               }
             )
@@ -907,7 +966,7 @@ event p e ef =
 
 
 {- | Return the current projected value of the 'EventFold'. -}
-projectedValue :: (Event e) => EventFold o p e -> State e
+projectedValue :: forall o p e. (Event p e) => EventFold o p e -> State e
 projectedValue
     (
       EventFold
@@ -918,18 +977,23 @@ projectedValue
     )
   =
     foldr
-      (\ e s ->
-        case apply e s of
-          Pure _ newState -> newState
-          SystemError _ -> s
-      )
+      applyDelta
       stateValue
       changes
   where
-    changes = foldMap getDelta (toDescList psEvents)
-    getDelta :: (EventId p, (Identity (Delta p e), Set p)) -> [e]
-    getDelta (_, (Identity (Event e), _)) = [e]
-    getDelta _ = mempty
+    applyDelta :: Delta p e -> State e -> State e
+    applyDelta d s =
+      case d of
+        Join p -> join @p @e p s
+        UnJoin p -> unjoin @p @e p s
+        EventD e ->
+          case apply @p e s of
+            Pure _ newState -> newState
+            SystemError _ -> s
+        Error{} -> s
+
+    changes :: [Delta p e]
+    changes = runIdentity . fst . snd <$> toDescList psEvents
 
 
 {- | Return the current infimum value of the 'EventFold'. -}
@@ -1076,7 +1140,7 @@ origin = psOrigin . unEventFold
 -}
 reduce
   :: forall o p e f.
-     ( Event e
+     ( Event p e
      , Monad f
      , Ord p
      )
@@ -1133,6 +1197,10 @@ reduce
                   Join p -> Set.singleton p
                   _ -> mempty
             if
+                {-
+                  This branch means to roll the update into the
+                  infimum. The @else@ branch means we do not.
+                -}
                 Set.null (((participants `union` joining) \\ acks) \\ implicitAcks)
                 || eid <= infState
               then
@@ -1141,7 +1209,8 @@ reduce
                     reduce infState ef {
                       psInfimum = infimum {
                           eventId = eid,
-                          participants = Set.insert p participants
+                          participants = Set.insert p participants,
+                          stateValue = join @p @e p stateValue
                         },
                       psEvents = newDeltas
                     }
@@ -1149,7 +1218,8 @@ reduce
                     reduce infState ef {
                       psInfimum = infimum {
                           eventId = eid,
-                          participants = Set.delete p participants
+                          participants = Set.delete p participants,
+                          stateValue = unjoin @p @e p stateValue
                         },
                       psEvents = newDeltas
                     }
@@ -1173,8 +1243,8 @@ reduce
                             },
                             mempty
                           )
-                  Event e ->
-                    case apply e stateValue of
+                  EventD e ->
+                    case apply @p e stateValue of
                       SystemError output -> do
                         events_ <- runEvents newDeltas
                         pure

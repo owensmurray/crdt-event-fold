@@ -97,7 +97,7 @@ instance
     ( Eq (Output e)
     , Eq e
     , Eq o
-    , Event e
+    , Event p e
     , Monad m
     , Ord p
     )
@@ -169,7 +169,7 @@ runEventFoldT
        of the consistent outputs, and a flag indicating whether the new
        'EventFold' value should be propagated to the other participants.
      -}
-runEventFoldT self ef = do
+runEventFoldT self ef =
   flip runReaderT self
   . flip runStateT (UpdateResult ef mempty False)
   . unEventFoldT 

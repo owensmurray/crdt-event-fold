@@ -421,6 +421,12 @@ instance (Event p a, Event p b) => Event p (Either a b) where
       SystemError o -> SystemError (Right o)
       Pure o s -> Pure (Right o) (a, s)
 
+  join p (a, b) =
+    (join @p @a p a, join @p @b p b)
+  
+  unjoin p (a, b) =
+    (unjoin @p @a p a, unjoin @p @b p b)
+
 
 {- |
   The result of applying an event.

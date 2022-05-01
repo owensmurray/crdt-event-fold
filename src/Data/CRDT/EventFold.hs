@@ -476,7 +476,11 @@ data EventResult e
   participant.
 -}
 new
-  :: (Default (State e), Ord p)
+  :: forall o p e.
+     ( Default (State e)
+     , Event p e
+     , Ord p
+     )
   => o {- ^ The "origin", identifying the historical lineage of this CRDT. -}
   -> p {- ^ The initial participant. -}
   -> EventFold o p e
@@ -487,7 +491,7 @@ new o participant =
         psInfimum = Infimum {
             eventId = def,
             participants = Set.singleton participant,
-            stateValue = def
+            stateValue = join @p @e participant def
           },
         psEvents = mempty
       }

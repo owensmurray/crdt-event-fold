@@ -421,6 +421,12 @@ instance (Event p a, Event p b) => Event p (Either a b) where
       SystemError o -> SystemError (Right o)
       Pure o s -> Pure (Right o) (a, s)
 
+  join p (a, b) =
+    (join @p @a p a, join @p @b p b)
+  
+  unjoin p (a, b) =
+    (unjoin @p @a p a, unjoin @p @b p b)
+
 
 {- |
   The result of applying an event.
@@ -476,7 +482,11 @@ data EventResult e
   participant.
 -}
 new
-  :: (Default (State e), Ord p)
+  :: forall o p e.
+     ( Default (State e)
+     , Event p e
+     , Ord p
+     )
   => o {- ^ The "origin", identifying the historical lineage of this CRDT. -}
   -> p {- ^ The initial participant. -}
   -> EventFold o p e
@@ -487,7 +497,7 @@ new o participant =
         psInfimum = Infimum {
             eventId = def,
             participants = Set.singleton participant,
-            stateValue = def
+            stateValue = join @p @e participant def
           },
         psEvents = mempty
       }

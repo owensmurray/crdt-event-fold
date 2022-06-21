@@ -171,7 +171,6 @@ module Data.CRDT.EventFold (
 
 ) where
 
-
 import Control.Exception (Exception)
 import Data.Aeson (FromJSON(parseJSON), ToJSON(toEncoding, toJSON),
   FromJSONKey, ToJSONKey)
@@ -273,10 +272,10 @@ deriving newtype instance
   `Infimum` is the infimum, or greatest lower bound, of the possible
   values of @s@.
 -}
-data Infimum s p = Infimum {
-         eventId :: EventId p,
-    participants :: Set p,
-      stateValue :: s
+data Infimum s p = Infimum
+  {      eventId :: EventId p
+  , participants :: Set p
+  ,   stateValue :: s
   }
   deriving stock (Generic, Show)
   deriving anyclass (ToJSON, FromJSON)
@@ -507,7 +506,11 @@ new o participant =
   Get the outstanding events that need to be propagated to a particular
   participant.
 -}
-events :: (Ord p) => p -> EventFold o p e -> Diff o p e
+events
+  :: (Ord p)
+  => p
+  -> EventFold o p e
+  -> Diff o p e
 events peer (EventFold ef) =
     Diff {
       diffEvents = omitAcknowledged <$> psEvents ef,
@@ -1017,9 +1020,7 @@ infimumId :: EventFold o p e -> EventId p
 infimumId = eventId . psInfimum . unEventFold
 
 
-{- |
-  Gets the known participants at the infimum.
--}
+{- | Gets the known participants at the infimum. -}
 infimumParticipants :: EventFold o p e -> Set p
 infimumParticipants
     (
@@ -1108,7 +1109,10 @@ divergent
     eidByParticipant =
       foldr
         accum
-        (Map.fromList [(p, eventId) | p <- Set.toList participants], eventId)
+        (
+          Map.fromList [(p, eventId) | p <- Set.toList participants],
+          eventId
+        )
         (
           let flatten (a, (Identity b, c)) = (a, b, c)
           in (flatten <$> toAscList psEvents)

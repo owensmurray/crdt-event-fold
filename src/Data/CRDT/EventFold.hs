@@ -539,6 +539,7 @@ data Diff o p e = Diff {
     diffInfimum :: EventId p
   }
   deriving stock (Generic)
+deriving stock instance (Eq o, Eq p, Eq e, Eq (Output e)) => Eq (Diff o p e)
 deriving anyclass instance (ToJSON o, ToJSON p, ToJSON e, ToJSON (Output e)) => ToJSON (Diff o p e)
 deriving anyclass instance (Ord p, FromJSON o, FromJSON p, FromJSON e, FromJSON (Output e)) => FromJSON (Diff o p e)
 deriving stock instance (

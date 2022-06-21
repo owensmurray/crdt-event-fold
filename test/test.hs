@@ -15,6 +15,7 @@ import Data.CRDT.EventFold (Event(Output, State, apply),
   EventResult(Pure), UpdateResult(urEventFold, urNeedsPropagation,
   urOutputs), EventFold, acknowledge, bottomEid, diffMerge, disassociate,
   divergent, event, events, fullMerge, infimumValue, new, participate)
+import Data.Maybe (fromJust)
 import Test.Hspec (describe, hspec, it, shouldBe, shouldNotBe)
 import qualified Data.Map as Map
 
@@ -49,7 +50,7 @@ main = hspec $ do
 
       let r = acknowledge 'b' b
       let b = urEventFold r
-      let Right r = diffMerge 'a' a (events 'a' b)
+      let Right r = diffMerge 'a' a (fromJust (events 'a' b))
       let a = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 0 'a', participants = fromList \"ab\", stateValue = 0}, psEvents = fromList []}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 0 'a', participants = fromList \"ab\", stateValue = 0}, psEvents = fromList []}}"
@@ -93,7 +94,7 @@ main = hspec $ do
       show (divergent b) `shouldBe` "fromList [('a',Eid 0 'a')]"
 
       {- | 'b' sends update to 'a'.  -}
-      let Right r = diffMerge 'a' a (events 'a' b)
+      let Right r = diffMerge 'a' a (fromJust (events 'a' b))
       let a = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 0 'a', participants = fromList \"ab\", stateValue = 0}, psEvents = fromList [(Eid 1 'a',(Identity (EventD Dec),fromList \"a\")),(Eid 1 'b',(Identity (EventD Dec),fromList \"ab\")),(Eid 2 'a',(Identity (EventD Dec),fromList \"a\"))]}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 0 'a', participants = fromList \"ab\", stateValue = 0}, psEvents = fromList [(Eid 1 'b',(Identity (EventD Dec),fromList \"b\"))]}}"
@@ -103,7 +104,7 @@ main = hspec $ do
       show (divergent b) `shouldBe` "fromList [('a',Eid 0 'a')]"
 
       {- | 'a' sends update to 'b'.  -}
-      let Right r = diffMerge 'b' b (events 'b' a)
+      let Right r = diffMerge 'b' b (fromJust (events 'b' a))
       let b = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 0 'a', participants = fromList \"ab\", stateValue = 0}, psEvents = fromList [(Eid 1 'a',(Identity (EventD Dec),fromList \"a\")),(Eid 1 'b',(Identity (EventD Dec),fromList \"ab\")),(Eid 2 'a',(Identity (EventD Dec),fromList \"a\"))]}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList []}}"
@@ -113,7 +114,7 @@ main = hspec $ do
       show (divergent b) `shouldBe` "fromList []"
 
       {- | 'b' sends update to 'a'.  -}
-      let Right r = diffMerge 'a' a (events 'a' b)
+      let Right r = diffMerge 'a' a (fromJust (events 'a' b))
       let a = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList []}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList []}}"
@@ -124,7 +125,7 @@ main = hspec $ do
       show a `shouldBe` show b
 
       {- | 'b' sends update to 'a' (again).  -}
-      let Right r = diffMerge 'a' a (events 'a' b)
+      let Right r = diffMerge 'a' a (fromJust (events 'a' b))
       let a = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList []}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList []}}"
@@ -199,7 +200,7 @@ main = hspec $ do
       show (divergent c) `shouldBe` "fromList [('b',Eid 2 'a')]"
 
       {- | 'b' sends update to 'a'.  -}
-      let Right r = diffMerge 'a' a (events 'a' b)
+      let Right r = diffMerge 'a' a (fromJust (events 'a' b))
       let a = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList [(Eid 3 'a',(Identity (EventD Inc),fromList \"ac\")),(Eid 3 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 4 'a',(Identity (Join 'c'),fromList \"ac\")),(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"a\"))]}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList [(Eid 3 'b',(Identity (EventD Inc),fromList \"b\")),(Eid 4 'b',(Identity (EventD Inc),fromList \"b\"))]}}"
@@ -215,7 +216,7 @@ main = hspec $ do
         show (urEventFold r) `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList [(Eid 3 'a',(Identity (EventD Inc),fromList \"ac\")),(Eid 4 'a',(Identity (Join 'c'),fromList \"ac\")),(Eid 5 'c',(Identity (UnJoin 'c'),fromList \"c\"))]}}"
 
       {- | 'a' sends update to 'b'.  -}
-      let Right r = diffMerge 'b' b (events 'b' a)
+      let Right r = diffMerge 'b' b (fromJust (events 'b' a))
       let b = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 2 'a', participants = fromList \"ab\", stateValue = -3}, psEvents = fromList [(Eid 3 'a',(Identity (EventD Inc),fromList \"ac\")),(Eid 3 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 4 'a',(Identity (Join 'c'),fromList \"ac\")),(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"a\"))]}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 4 'a', participants = fromList \"abc\", stateValue = -1}, psEvents = fromList [(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"ab\"))]}}"
@@ -227,7 +228,7 @@ main = hspec $ do
       show (divergent c) `shouldBe` "fromList [('b',Eid 2 'a')]"
 
       {- | 'b' sends update to 'a'.  -}
-      let Right r = diffMerge 'a' a (events 'a' b)
+      let Right r = diffMerge 'a' a (fromJust (events 'a' b))
       let a = urEventFold r
       show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 4 'a', participants = fromList \"abc\", stateValue = -1}, psEvents = fromList [(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"ab\"))]}}"
       show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 4 'a', participants = fromList \"abc\", stateValue = -1}, psEvents = fromList [(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"ab\"))]}}"
@@ -249,7 +250,7 @@ main = hspec $ do
           instead of just doing the wrong thing.
         -}
         {- | 'b' sends update to 'c'.  -}
-        let Right r = diffMerge 'c' c (events 'c' b)
+        let Right r = diffMerge 'c' c (fromJust (events 'c' b))
         let c = urEventFold r
         show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 4 'a', participants = fromList \"abc\", stateValue = -1}, psEvents = fromList [(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"ab\"))]}}"
         show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 4 'a', participants = fromList \"abc\", stateValue = -1}, psEvents = fromList [(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"ab\"))]}}"
@@ -261,7 +262,7 @@ main = hspec $ do
         show (divergent c) `shouldBe` "fromList []"
 
         {- | 'c' sends update to 'a'.  -}
-        let Right r = diffMerge 'a' a (events 'a' c)
+        let Right r = diffMerge 'a' a (fromJust (events 'a' c))
         let a = urEventFold r
         show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 5 'a', participants = fromList \"abc\", stateValue = 1}, psEvents = fromList []}}"
         show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 4 'a', participants = fromList \"abc\", stateValue = -1}, psEvents = fromList [(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"ab\"))]}}"
@@ -273,7 +274,7 @@ main = hspec $ do
         show (divergent c) `shouldBe` "fromList []"
 
         {- | 'a' sends update to 'b'.  -}
-        let Right r = diffMerge 'b' b (events 'b' a)
+        let Right r = diffMerge 'b' b (fromJust (events 'b' a))
         let b = urEventFold r
         show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 5 'a', participants = fromList \"abc\", stateValue = 1}, psEvents = fromList []}}"
         show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 5 'a', participants = fromList \"abc\", stateValue = 1}, psEvents = fromList []}}"
@@ -300,7 +301,7 @@ main = hspec $ do
         show (divergent c) `shouldBe` "fromList []"
 
         {- | 'c' sends update to 'a'.  -}
-        let Right r = diffMerge 'a' a (events 'a' c)
+        let Right r = diffMerge 'a' a (fromJust (events 'a' c))
         let a = urEventFold r
         show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 5 'a', participants = fromList \"abc\", stateValue = 1}, psEvents = fromList []}}"
         show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 4 'a', participants = fromList \"abc\", stateValue = -1}, psEvents = fromList [(Eid 4 'b',(Identity (EventD Inc),fromList \"ab\")),(Eid 5 'a',(Identity (EventD Inc),fromList \"ab\"))]}}"
@@ -312,7 +313,7 @@ main = hspec $ do
         show (divergent c) `shouldBe` "fromList []"
 
         {- | 'a' sends update to 'b'.  -}
-        let Right r = diffMerge 'b' b (events 'b' a)
+        let Right r = diffMerge 'b' b (fromJust (events 'b' a))
         let b = urEventFold r
         show a `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 5 'a', participants = fromList \"abc\", stateValue = 1}, psEvents = fromList []}}"
         show b `shouldBe` "EventFold {unEventFold = EventFoldF {psOrigin = 0, psInfimum = Infimum {eventId = Eid 5 'a', participants = fromList \"abc\", stateValue = 1}, psEvents = fromList []}}"
@@ -338,5 +339,37 @@ main = hspec $ do
         c = urEventFold . snd . participate 'a' 'c' $ b
         d = urEventFold . acknowledge 'c' $ c
       divergent d `shouldBe` Map.fromList [('b', bottomEid)]
+
+  describe "events" $ do
+    it "balks on infimum invalidity" $ do
+      let
+        b =
+          let
+            a = new 0 'a' :: EventFold Int Char Ops
+          in
+            urEventFold . snd . participate 'a' 'b' $ a
+      events 'b' b `shouldBe` Nothing
+      (const () <$> events 'a' b) `shouldBe` Just ()
+    it "balkes on unjoin/join invalidity" $ do
+      let
+        d =
+          let
+            a = new 0 'a' :: EventFold Int Char Ops
+            b = urEventFold . snd . participate 'a' 'b' $ a
+            c = urEventFold . snd . disassociate 'b' $ b
+          in
+            urEventFold . snd . participate 'a' 'b' $ c
+      events 'b' d `shouldBe` Nothing
+      (const () <$> events 'a' d) `shouldBe` Just ()
+    it "succeeds in the usual case" $ do
+      let
+        c =
+          let
+            a = new 0 'a' :: EventFold Int Char Ops
+            b = urEventFold . snd . participate 'a' 'b' $ a
+          in
+            urEventFold . acknowledge 'b' $ b
+      (const () <$> events 'a' c) `shouldBe` Just ()
+      (const () <$> events 'b' c) `shouldBe` Just ()
 
 

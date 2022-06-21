@@ -171,7 +171,6 @@ module Data.CRDT.EventFold (
 
 ) where
 
-
 import Control.Exception (Exception)
 import Data.Aeson (FromJSON(parseJSON), ToJSON(toEncoding, toJSON),
   FromJSONKey, ToJSONKey)
@@ -188,6 +187,8 @@ import qualified Data.DoubleWord as DW
 import qualified Data.Map as Map
 import qualified Data.Map.Merge.Lazy as Map.Merge
 import qualified Data.Set as Set
+
+{-# ANN module "HLint: ignore Redundant if" #-}
 
 
 data EventFoldF o p e f = EventFoldF {
@@ -273,10 +274,10 @@ deriving newtype instance
   `Infimum` is the infimum, or greatest lower bound, of the possible
   values of @s@.
 -}
-data Infimum s p = Infimum {
-         eventId :: EventId p,
-    participants :: Set p,
-      stateValue :: s
+data Infimum s p = Infimum
+  {      eventId :: EventId p
+  , participants :: Set p
+  ,   stateValue :: s
   }
   deriving stock (Generic, Show)
   deriving anyclass (ToJSON, FromJSON)
@@ -506,15 +507,70 @@ new o participant =
 {- |
   Get the outstanding events that need to be propagated to a particular
   participant.
+
+  It isn't always the case that a less expensive 'diffMerge' is sufficient
+  to maintain consistency. For instance, if the initial 'participate'
+  for a participant hasn't reached the infimum yet then there is no way
+  to guarantee that the target will receive /every/ new event from every
+  participant (because an old participant might not even know about the
+  new participant, because being part of the infimum is the /definition/
+  of all participants knowing a thing).
+
+  If the new participant doesn't receive every event, then it obviously
+  can't 'apply' the missing events. Therefore, until it's 'participate'
+  event is part of the infimum, it must receive infimum values that have
+  the missing events pre-applied by some other participant.
 -}
-events :: (Ord p) => p -> EventFold o p e -> Diff o p e
+events
+  :: forall o p e. (Ord p)
+  => p {- ^ The participant to which we are sending the 'Diff'. -}
+  -> EventFold o p e {- ^ The EventFold being propagated. -}
+  -> Maybe (Diff o p e)
+     {- ^
+       'Nothing' if the participant must perform a 'fullMerge' in order
+       to maintain consistency. 'Just' if a less expensive 'diffMerge'
+       will suffice.
+     -}
 events peer (EventFold ef) =
-    Diff {
-      diffEvents = omitAcknowledged <$> psEvents ef,
-      diffOrigin = psOrigin ef,
-      diffInfimum = eventId (psInfimum ef)
-    }
+    if
+      diffOk
+        (participants (psInfimum ef))
+        (snd <$> Map.toAscList (psEvents ef))
+    then
+      Just
+        Diff {
+          diffEvents = omitAcknowledged <$> psEvents ef,
+          diffOrigin = psOrigin ef,
+          diffInfimum = eventId (psInfimum ef)
+        }
+    else
+      Nothing
   where
+    {- |
+      Return 'True' if it is ok to send a diff. 'False' if a full merge
+      must be performed.
+    -}
+    diffOk :: Set p -> [(Identity (Delta p e), Set p)] -> Bool
+    diffOk accPeers someEvents =
+        if peer `member` accPeers then
+          {-
+            Even if the target is part of the infimum, we still have
+            to make sure the target doesn't have an upcoming 'UnJoin'
+            (regardless if it is followed by another 'Join', otherwise
+            we would just use 'projParticipants').
+          -}
+          case someEvents of
+            (Identity e, _):more ->
+              diffOk (accumulatePeers e) more
+            [] -> True
+        else
+          False
+      where
+        accumulatePeers :: Delta p e -> Set p
+        accumulatePeers = \case
+          UnJoin p -> Set.delete p accPeers
+          _ -> accPeers
+
     {- |
       Don't send the event data to participants which have already
       acknowledged it, saving network and cpu resources.
@@ -536,6 +592,7 @@ data Diff o p e = Diff {
     diffInfimum :: EventId p
   }
   deriving stock (Generic)
+deriving stock instance (Eq o, Eq p, Eq e, Eq (Output e)) => Eq (Diff o p e)
 deriving anyclass instance (ToJSON o, ToJSON p, ToJSON e, ToJSON (Output e)) => ToJSON (Diff o p e)
 deriving anyclass instance (Ord p, FromJSON o, FromJSON p, FromJSON e, FromJSON (Output e)) => FromJSON (Diff o p e)
 deriving stock instance (
@@ -1017,9 +1074,7 @@ infimumId :: EventFold o p e -> EventId p
 infimumId = eventId . psInfimum . unEventFold
 
 
-{- |
-  Gets the known participants at the infimum.
--}
+{- | Gets the known participants at the infimum. -}
 infimumParticipants :: EventFold o p e -> Set p
 infimumParticipants
     (
@@ -1108,7 +1163,10 @@ divergent
     eidByParticipant =
       foldr
         accum
-        (Map.fromList [(p, eventId) | p <- Set.toList participants], eventId)
+        (
+          Map.fromList [(p, eventId) | p <- Set.toList participants],
+          eventId
+        )
         (
           let flatten (a, (Identity b, c)) = (a, b, c)
           in (flatten <$> toAscList psEvents)

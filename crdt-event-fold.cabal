@@ -33,6 +33,7 @@ common warnings
     -Wmissing-export-lists
     -Wmissing-import-lists
     -Wredundant-constraints
+    -Wall
 
 library
   import: dependencies, warnings

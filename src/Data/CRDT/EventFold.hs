@@ -162,6 +162,7 @@ module Data.CRDT.EventFold (
   projParticipants,
   origin,
   divergent,
+  source,
 
   -- * Underlying Types
   EventFold,
@@ -300,6 +301,16 @@ data EventId p
   deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Binary)
 instance Default (EventId p) where
   def = BottomEid
+
+
+{- |
+  The participant the created an event, if there is one (which there
+  isn't for 'bottomEid').
+-}
+source :: EventId p -> Maybe p
+source = \case
+  BottomEid -> Nothing
+  Eid _ p -> Just p
 
 
 {- | Newtype around 'DW.Word256' to supply typeclass instances. -}

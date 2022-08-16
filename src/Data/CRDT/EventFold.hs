@@ -162,6 +162,7 @@ module Data.CRDT.EventFold (
   projParticipants,
   origin,
   divergent,
+  source,
 
   -- * Underlying Types
   EventFold,
@@ -300,6 +301,16 @@ data EventId p
   deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey, Binary)
 instance Default (EventId p) where
   def = BottomEid
+
+
+{- |
+  The participant the created an event, if there is one (which there
+  isn't for 'bottomEid').
+-}
+source :: EventId p -> Maybe p
+source = \case
+  BottomEid -> Nothing
+  Eid _ p -> Just p
 
 
 {- | Newtype around 'DW.Word256' to supply typeclass instances. -}
@@ -1355,11 +1366,11 @@ reduce
       :: Map (EventId p) (f (Delta p e), Set p)
       -> f (Map (EventId p) (Identity (Delta p e), Set p))
     runEvents events_ =
-      Map.fromList <$> sequence [
+      Map.fromAscList <$> sequence [
         do
           d <- fd
           pure (eid, (Identity d, acks))
-        | (eid, (fd, acks)) <- Map.toList events_
+        | (eid, (fd, acks)) <- Map.toAscList events_
       ]
 
     {- | Figure out which nodes have upcoming unjoins. -}

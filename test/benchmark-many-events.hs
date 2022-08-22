@@ -1,5 +1,6 @@
-module Main (main) where
+{-# LANGUAGE NumericUnderscores #-}
 
+module Main (main) where
 
 import Data.CRDT.EventFold (UpdateResult(UpdateResult, urEventFold),
   acknowledge, new)
@@ -12,7 +13,7 @@ main = do
   ((), UpdateResult { urEventFold = ef }) <-
     runEventFoldT 'a' (new () 'a') $ do
       _ <- participate 'b'
-      sequence_ $ replicate 5000 (event ())
+      sequence_ $ replicate 500_000 (event ())
 
   let ur = acknowledge 'b' ef
   print ur

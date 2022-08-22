@@ -14,7 +14,7 @@ main = do
   ((), UpdateResult { urEventFold = ef }) <-
     runEventFoldT 'a' (new () 'a') $ do
       _ <- participate 'b'
-      sequence_ $ replicate 1_000 (event ())
+      sequence_ $ replicate 15_000 (event ())
 
   let bytes = Binary.encode ef
   print ("Encoding size", BSL.length bytes)

@@ -837,6 +837,14 @@ data UpdateResult o p e = UpdateResult
                             to other participants.
                           -}
   }
+deriving stock instance
+  ( Show (Output e)
+  , Show (State e)
+  , Show e
+  , Show o
+  , Show p
+  )
+  => Show (UpdateResult o p e)
 
 
 {- |

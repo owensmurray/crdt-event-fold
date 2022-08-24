@@ -180,7 +180,6 @@ import Data.Binary (Binary(get, put))
 import Data.Default.Class (Default(def))
 import Data.Functor.Identity (Identity(Identity), runIdentity)
 import Data.Map (Map, keys, toAscList, toDescList, unionWith)
-import Data.Maybe (catMaybes)
 import Data.Set ((\\), Set, member, union)
 import GHC.Generics (Generic)
 import Type.Reflection (Typeable)
@@ -195,7 +194,14 @@ import qualified Data.Set as Set
 data EventFoldF o p e f = EventFoldF {
      psOrigin :: o,
     psInfimum :: Infimum (State e) p,
-     psEvents :: Map (EventId p) (f (Delta p e), Set p)
+     psEvents :: Map (EventId p) (f (Delta p e), Set p),
+    psUnjoins :: Set (EventId p)
+                 {- ^
+                   The set of events that perform an unjoin with
+                   unjoins that have not reached the infimum. This is
+                   an optimization so that 'reduce' doesn't have to
+                   recompute this every time.
+                 -}
   }
   deriving stock (Generic)
 deriving anyclass instance (ToJSON o, ToJSON p, ToJSON (State e), ToJSON (f (Delta p e))) => ToJSON (EventFoldF o p e f)
@@ -511,7 +517,8 @@ new o participant =
             participants = Set.singleton participant,
             stateValue = join @p @e participant def
           },
-        psEvents = mempty
+        psEvents = mempty,
+        psUnjoins = mempty
       }
 
 
@@ -552,7 +559,8 @@ events peer (EventFold ef) =
         Diff {
           diffEvents = omitAcknowledged <$> psEvents ef,
           diffOrigin = psOrigin ef,
-          diffInfimum = eventId (psInfimum ef)
+          diffInfimum = eventId (psInfimum ef),
+          diffUnjoins = psUnjoins ef
         }
     else
       Nothing
@@ -600,7 +608,8 @@ events peer (EventFold ef) =
 data Diff o p e = Diff {
      diffEvents :: Map (EventId p) (Maybe (Delta p e), Set p),
      diffOrigin :: o,
-    diffInfimum :: EventId p
+    diffInfimum :: EventId p,
+    diffUnjoins :: Set (EventId p)
   }
   deriving stock (Generic)
 deriving stock instance (Eq o, Eq p, Eq e, Eq (Output e)) => Eq (Diff o p e)
@@ -683,8 +692,8 @@ diffMerge_ ef pak | tooNew =
     tooNew = maxState < diffInfimum pak
 
 diffMerge_
-    orig@(EventFold (EventFoldF o infimum d1))
-    ep@(Diff d2 _ i2)
+    orig@(EventFold (EventFoldF o infimum d1 unjoins))
+    ep@(Diff d2 _ i2 diffUnjoins)
   =
     case
       reduce
@@ -698,7 +707,8 @@ diffMerge_
               Map.Merge.preserveMissing
               (Map.Merge.zipWithMatched (const mergeAcks))
               (first runIdentity <$> d1)
-              d2
+              d2,
+          psUnjoins = unjoins `Set.union` diffUnjoins
         }
     of
       Nothing -> Left (DiffTooSparse orig ep)
@@ -788,7 +798,7 @@ fullMerge_
   => EventFold o p e {- ^ The local copy of the 'EventFold'. -}
   -> EventFold o p e {- ^ The remote copy of the 'Eventfold'. -}
   -> Either (MergeError o p e) (UpdateResult o p e)
-fullMerge_ (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
+fullMerge_ (EventFold left) (EventFold right@(EventFoldF o2 i2 d2 unjoins)) =
   case
     diffMerge_
       (
@@ -800,7 +810,8 @@ fullMerge_ (EventFold left) (EventFold right@(EventFoldF o2 i2 d2)) =
       Diff {
         diffOrigin = o2,
         diffEvents = first (Just . runIdentity) <$> d2,
-        diffInfimum = eventId i2
+        diffInfimum = eventId i2,
+        diffUnjoins = unjoins
       }
   of
     Left err -> Left err
@@ -979,7 +990,8 @@ disassociate peer (EventFold ef) =
               Map.insert
                 eid
                 (Identity (UnJoin peer), mempty)
-                (psEvents ef)
+                (psEvents ef),
+            psUnjoins = Set.insert eid (psUnjoins ef)
           }
     in
       (
@@ -1247,7 +1259,8 @@ reduce
     infState
     ef@EventFoldF {
       psInfimum = infimum@Infimum {participants, stateValue},
-      psEvents
+      psEvents,
+      psUnjoins
     }
   =
     case Map.minViewWithKey psEvents of
@@ -1257,24 +1270,28 @@ reduce
             EventFoldF {
               psOrigin = psOrigin ef,
               psInfimum = psInfimum ef,
-              psEvents = mempty
+              psEvents = mempty,
+              psUnjoins = mempty
             },
             mempty
           )
       Just ((eid, (getUpdate, acks)), newDeltas)
         | eid <= eventId infimum -> {- The event is obsolete. Ignore it. -}
             reduce infState ef {
-              psEvents = newDeltas
+              psEvents = newDeltas,
+              psUnjoins = dropObsoleteUnjoins eid psUnjoins
             }
         | isRenegade eid -> {- This is a renegade event. Ignore it. -}
             reduce infState ef {
-              psEvents = newDeltas
+              psEvents = newDeltas,
+              psUnjoins = dropObsoleteUnjoins eid psUnjoins
             }
         | otherwise -> do
-            implicitAcks <- unjoins eid
-
             update <- getUpdate
             let
+              implicitAcks =
+                Set.fromList
+                  [ p | Just p <- source <$> Set.toList psUnjoins ]
               {- |
                 Join events must be acknowledged by the joining
                 participant before moving into the infimum.
@@ -1299,7 +1316,8 @@ reduce
                           participants = Set.insert p participants,
                           stateValue = join @p @e p stateValue
                         },
-                      psEvents = newDeltas
+                      psEvents = newDeltas,
+                      psUnjoins = dropObsoleteUnjoins eid psUnjoins
                     }
                   UnJoin p ->
                     reduce infState ef {
@@ -1308,7 +1326,8 @@ reduce
                           participants = Set.delete p participants,
                           stateValue = unjoin @p @e p stateValue
                         },
-                      psEvents = newDeltas
+                      psEvents = newDeltas,
+                      psUnjoins = dropObsoleteUnjoins eid psUnjoins
                     }
                   Error output eacks
                     | Set.null (participants \\ eacks) -> do
@@ -1316,7 +1335,8 @@ reduce
                           reduce infState ef {
                             psInfimum = infimum {
                               eventId = eid
-                            }
+                            },
+                            psUnjoins = dropObsoleteUnjoins eid psUnjoins
                           }
                         pure (ps2, Map.insert eid output outputs)
                     | otherwise -> do
@@ -1326,7 +1346,8 @@ reduce
                             EventFoldF {
                               psOrigin = psOrigin ef,
                               psInfimum = psInfimum ef,
-                              psEvents = events_
+                              psEvents = events_,
+                              psUnjoins
                             },
                             mempty
                           )
@@ -1343,7 +1364,8 @@ reduce
                                 Map.insert
                                   eid
                                   (Identity (Error output mempty), acks)
-                                  events_
+                                  events_,
+                              psUnjoins = dropObsoleteUnjoins eid psUnjoins
                             },
                             mempty
                           )
@@ -1354,7 +1376,8 @@ reduce
                                 eventId = eid,
                                 stateValue = newState
                               },
-                            psEvents = newDeltas
+                            psEvents = newDeltas,
+                            psUnjoins = dropObsoleteUnjoins eid psUnjoins
                           }
                         pure (ps2, Map.insert eid output outputs)
               else do
@@ -1364,7 +1387,8 @@ reduce
                     EventFoldF {
                       psOrigin = psOrigin ef,
                       psInfimum = psInfimum ef,
-                      psEvents = events_
+                      psEvents = events_,
+                      psUnjoins
                     },
                     mempty
                   )
@@ -1381,29 +1405,10 @@ reduce
         | (eid, (fd, acks)) <- Map.toAscList events_
       ]
 
-    {- | Figure out which nodes have upcoming unjoins. -}
-    unjoins
-      :: EventId p
-         {- ^
-           The even under consideration, unjoins only after which we
-           are interested.
-         -}
-      -> f (Set p)
-    unjoins eid =
-      Set.fromList
-      . Map.elems
-      . Map.filterWithKey (\k _ -> eid <= k)
-      <$> unjoinMap
-
-    {- | The static map of unjoins. -}
-    unjoinMap :: f (Map (EventId p) p)
-    unjoinMap =
-      Map.fromList . catMaybes <$> sequence [
-          update >>= \case
-            UnJoin p -> pure (Just (eid, p))
-            _ -> pure Nothing
-          | (eid, (update, _acks)) <- Map.toList psEvents
-        ]
+    dropObsoleteUnjoins :: EventId p -> Set (EventId p) -> Set (EventId p)
+    dropObsoleteUnjoins newInfimumEid unjoins =
+      let (_, gt) = Set.split newInfimumEid unjoins
+      in gt
 
     {- |
       Renegade events are events that originate from a non-participating

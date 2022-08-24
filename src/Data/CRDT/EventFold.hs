@@ -904,19 +904,19 @@ ackErr :: (Event p e, Ord p)
   -> EventFoldF o p e Identity
   -> (EventFoldF o p e Identity, Map (EventId p) (Output e))
 ackErr p ef =
-  runIdentity $
-    reduce
-      (eventId (psInfimum ef))
-      ef {
-        psEvents =
-          case Map.minViewWithKey (psEvents ef) of
-            Just ((eid, (Identity (Error o eacks), acks)), deltas) ->
+  case Map.minViewWithKey (psEvents ef) of
+    Just ((eid, (Identity (Error o eacks), acks)), deltas) ->
+      runIdentity $
+        reduce
+          (eventId (psInfimum ef))
+          ef {
+            psEvents =
               Map.insert
                 eid
                 (Identity (Error o (Set.insert p eacks)), acks)
                 deltas
-            _ -> psEvents ef
-      }
+          }
+    _ -> (ef, mempty)
 
 
 {- |

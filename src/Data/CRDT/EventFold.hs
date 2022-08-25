@@ -179,7 +179,7 @@ import Data.Bifunctor (first)
 import Data.Binary (Binary(get, put))
 import Data.Default.Class (Default(def))
 import Data.Functor.Identity (Identity(Identity), runIdentity)
-import Data.Map (Map, keys, toAscList, toDescList, unionWith)
+import Data.Map (Map, toAscList, toDescList, unionWith)
 import Data.Set ((\\), Set, member, union)
 import GHC.Generics (Generic)
 import Type.Reflection (Typeable)
@@ -1424,11 +1424,22 @@ reduce
   A utility function that constructs the next `EventId` on behalf of
   a participant.
 -}
-nextId :: (Ord p) => p -> EventFoldF o p e f -> EventId p
+nextId
+  :: forall o p e f.
+     p
+  -> EventFoldF o p e f
+  -> EventId p
 nextId p EventFoldF {psInfimum = Infimum {eventId}, psEvents} =
-  case maximum (eventId:keys psEvents) of
-    BottomEid -> Eid 0 p
-    Eid ord _ -> Eid (succ ord) p
+  let
+    maxEid :: EventId p
+    maxEid =
+      case Map.maxViewWithKey psEvents of
+        Just ((eid, _), _) -> eid
+        Nothing -> eventId
+  in
+    case maxEid of
+      BottomEid -> Eid 0 p
+      Eid ord _ -> Eid (succ ord) p
 
 
 {- |

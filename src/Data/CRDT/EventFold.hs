@@ -188,7 +188,7 @@ import qualified Data.Map.Merge.Lazy as Map.Merge
 import qualified Data.Set as Set
 
 {-# ANN module "HLint: ignore Redundant if" #-}
-
+{-# ANN module "HLint: ignore Use catMaybes" #-}
 
 {- |
   This type is a

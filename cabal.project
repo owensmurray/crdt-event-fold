@@ -1,0 +1,6 @@
+packages:
+  "."
+package crdt-event-fold
+  ghc-options:
+    -Werror
+

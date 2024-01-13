@@ -41,19 +41,19 @@ import qualified Data.CRDT.EventFold as EF
   - Whether the 'EventFold' needs to be propagated to other participants.
 -}
 class MonadUpdateEF o p e m | m -> o p e where
-  {- | Apply an event. See 'EF.event'. -}
+  {- | Apply an event. See 'Data.CRDT.EventFold.event'. -}
   event :: e -> m (Output e, EventId p)
 
-  {- | Perform a full merge. See 'EF.fullMerge'. -}
+  {- | Perform a full merge. See 'Data.CRDT.EventFold.fullMerge'. -}
   fullMerge :: EventFold o p e -> m (Either (MergeError o p e) ())
 
-  {- | Perform a diff merge. See 'EF.diffMerge'. -}
+  {- | Perform a diff merge. See 'Data.CRDT.EventFold.diffMerge'. -}
   diffMerge :: Diff o p e -> m (Either (MergeError o p e) ())
 
-  {- | Allow a new participant to join in the cluster. See 'EF.participate'. -}
+  {- | Allow a new participant to join in the cluster. See 'Data.CRDT.EventFold.participate'. -}
   participate :: p -> m (EventId p)
 
-  {- | Remove a peer from participation. See 'EF.disassociate'. -}
+  {- | Remove a peer from participation. See 'Data.CRDT.EventFold.disassociate'. -}
   disassociate :: p -> m (EventId p)
 
   {- | Get the outstanding update results. -}

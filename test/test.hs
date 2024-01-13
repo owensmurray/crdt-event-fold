@@ -356,6 +356,19 @@ main = hspec $ do
             urEventFold . snd . participate 'a' 'b' $ a
       events 'b' b `shouldBe` Nothing
       (const () <$> events 'a' b) `shouldBe` Just ()
+
+    it "false-renegade" $ do
+      {-
+        This tests for the bug where UnJoin may not work because we
+        falsely believe that the UnJoin event is a renegade when it gets
+        reduced in the same batch as its own Join.
+      -}
+      let
+        a = new 0 'a' :: EventFold Int Char Ops
+        b = urEventFold . snd . participate 'a' 'b' $ a
+        c = urEventFold . snd . disassociate 'b' $ b
+      projParticipants c `shouldBe` Set.fromList "a"
+
     it "balks on unjoin/join invalidity" $ do
       let
         d =

@@ -175,12 +175,17 @@ module Data.CRDT.EventFold (
 import Control.Exception (Exception)
 import Data.Aeson (FromJSON(parseJSON), ToJSON(toEncoding, toJSON),
   FromJSONKey, ToJSONKey)
-import Data.Bifunctor (first)
+import Data.Bifunctor (Bifunctor(first))
 import Data.Binary (Binary(get, put))
 import Data.Default.Class (Default(def))
 import Data.Map (Map, toAscList, toDescList, unionWith)
 import Data.Set ((\\), Set, member, union)
 import GHC.Generics (Generic)
+import Prelude (Applicative(pure), Bool(False, True), Either(Left, Right),
+  Enum(succ), Eq((/=), (==)), Foldable(foldr, maximum), Functor(fmap),
+  Maybe(Just, Nothing), Monoid(mempty), Ord((<), (<=), compare, max),
+  Semigroup((<>)), ($), (.), (<$>), (||), Num, Show, const, fst, id,
+  not, otherwise, snd)
 import Type.Reflection (Typeable)
 import qualified Data.DoubleWord as DW
 import qualified Data.Map as Map

@@ -356,7 +356,7 @@ main = hspec $ do
             urEventFold . snd . participate 'a' 'b' $ a
       events 'b' b `shouldBe` Nothing
       (const () <$> events 'a' b) `shouldBe` Just ()
-    it "balkes on unjoin/join invalidity" $ do
+    it "balks on unjoin/join invalidity" $ do
       let
         d =
           let

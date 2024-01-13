@@ -16,16 +16,16 @@ extra-source-files:  README.md
 
 common dependencies
   build-depends:
-    , aeson              >= 2.0.3.0 && < 2.1
-    , base               >= 4.15    && < 4.16
+    , aeson              >= 2.0.3.0 && < 2.3
+    , base               >= 4.15    && < 4.20
     , binary             >= 0.8.8.0 && < 0.9
     , containers         >= 0.6.4.1 && < 0.7
     , data-default-class >= 0.1.2.0 && < 0.2
     , data-dword         >= 0.3.2.1 && < 0.4
     , exceptions         >= 0.10.4  && < 0.11
     , monad-logger       >= 0.3.36  && < 0.4
-    , mtl                >= 2.2.2   && < 2.3
-    , transformers       >= 0.5.6.2 && < 0.6
+    , mtl                >= 2.2.2   && < 2.4
+    , transformers       >= 0.5.6.2 && < 0.7
 
 common warnings
   ghc-options:
@@ -53,7 +53,7 @@ test-suite tests
   default-language: Haskell2010
   build-depends:
     , crdt-event-fold
-    , hspec >= 2.8.5 && < 2.9
+    , hspec >= 2.8.5 && < 2.12
 
 
 benchmark many-outstanding-events
@@ -74,6 +74,6 @@ benchmark serialization
   default-language: Haskell2010
   build-depends:
     , crdt-event-fold
-    , bytestring >= 0.10.12.1 && < 0.11
+    , bytestring >= 0.10.12.1 && < 0.13
 
 

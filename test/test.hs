@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-name-shadowing -Wno-incomplete-uni-patterns #-}
 
 {- | crdt-event-fold package tests. -}
 module Main (

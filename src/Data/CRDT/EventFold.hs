@@ -106,7 +106,7 @@ module Data.CRDT.EventFold (
     >   -> [a]           -- Analogous to all outstanding or future calls to
     >                    -- 'event'.
     >
-    >   -> b             
+    >   -> b
   -}
   -- * Basic API
   -- ** Creating new CRDTs
@@ -411,18 +411,18 @@ instance (Event p a, Event p b) => Event p (Either a b) where
   type Output (Either a b) = Either (Output a) (Output b)
   type State (Either a b) = (State a, State b)
 
-  apply (Left e) (a, b) = 
+  apply (Left e) (a, b) =
     case apply @p e a of
       SystemError o -> SystemError (Left o)
       Pure o s -> Pure (Left o) (s, b)
-  apply (Right e) (a, b) = 
+  apply (Right e) (a, b) =
     case apply @p e b of
       SystemError o -> SystemError (Right o)
       Pure o s -> Pure (Right o) (a, s)
 
   join p (a, b) =
     (join @p @a p a, join @p @b p b)
-  
+
   unjoin p (a, b) =
     (unjoin @p @a p a, unjoin @p @b p b)
 
@@ -894,7 +894,10 @@ acknowledge p ef =
 
 
 {- | Internal version of 'acknowledge'. -}
-acknowledge_ :: (Event p e, Ord p)
+acknowledge_
+  :: ( Event p e
+     , Ord p
+     )
   => p
   -> EventFold o p e
   -> (EventFold o p e, Map (EventId p) (Output e))
@@ -916,7 +919,10 @@ acknowledge_ p ef =
 
 
 {- | Acknowledge the reduction error, if one exists. -}
-ackErr :: (Event p e, Ord p)
+ackErr
+  :: ( Event p e
+     , Ord p
+     )
   => p
   -> EventFold o p e
   -> (EventFold o p e, Map (EventId p) (Output e))
@@ -942,7 +948,11 @@ ackErr p ef =
   'EventId' is so that you can use it to tell when the participation
   event has reached the infimum. See also: 'infimumId'
 -}
-participate :: forall o p e. (Ord p, Event p e)
+participate
+  :: forall o p e.
+     ( Event p e
+     , Ord p
+     )
   => p {- ^ The local participant. -}
   -> p {- ^ The participant being added. -}
   -> EventFold o p e
@@ -965,7 +975,7 @@ participate self peer ef =
         UpdateResult {
           urEventFold = ef2,
           urOutputs = outputs,
-          {- 
+          {-
             By definition, we have added some new information that
             needs propagating.
           -}
@@ -981,7 +991,11 @@ participate self peer ef =
   Indicate that a participant is removing itself from participating in
   the distributed 'EventFold'.
 -}
-disassociate :: forall o p e. (Event p e, Ord p)
+disassociate
+  :: forall o p e.
+     ( Event p e
+     , Ord p
+     )
   => p {- ^ The peer removing itself from participation. -}
   -> EventFold o p e
   -> (EventId p, UpdateResult o p e)
@@ -1004,7 +1018,7 @@ disassociate peer ef =
         UpdateResult {
           urEventFold = ef2,
           urOutputs = outputs,
-          {- 
+          {-
             By definition, we have added some new information that
             needs propagating.
           -}
@@ -1432,7 +1446,7 @@ nextId p EventFold {psInfimum = Infimum {eventId}, psEvents} =
   'SystemError', it needs to somehow arrange for remote copies to send
   full 'EventFold's, not just 'Diff's. A 'diffMerge' is not sufficient
   to get past the block. Only a 'fullMerge' will suffice.
-  
+
   If your system is not using 'SystemError' or else not using 'Diff's,
   then you don't ever need to worry about this function.
 -}

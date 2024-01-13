@@ -134,7 +134,7 @@ main = hspec $ do
       show (divergent a) `shouldBe` "fromList []"
       show (divergent b) `shouldBe` "fromList []"
       show a `shouldBe` show b
-      
+
       {- 'a' increments. -}
       let (o, _, r) = event 'a' Inc a
       let a = urEventFold r
@@ -245,7 +245,7 @@ main = hspec $ do
            World 1, b erroneously sends an update to c using diffMerge,
            dropping (Eid 3 'a') (because b's Diff infimum is (Eid 4 'a')).
          -}
-        {- 
+        {-
           TODO I think we can detect this condition and throw an exception
           instead of just doing the wrong thing.
         -}

@@ -172,5 +172,5 @@ runEventFoldT
 runEventFoldT self ef =
   flip runReaderT self
   . flip runStateT (UpdateResult ef mempty False)
-  . unEventFoldT 
+  . unEventFoldT
 

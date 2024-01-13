@@ -1,0 +1,143 @@
+on: [push]
+name: Haskell Builds
+jobs:
+  build:
+    name: Haskell Build
+    runs-on: ubuntu-latest # or macOS-latest, or windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc-version:
+          - '9.4'
+          - '9.6'
+          - '9.8'
+        cabal-version: ['3.10.2.0']
+    steps:
+      # Checkout
+      - uses: actions/checkout@v3
+
+      # Setup
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        id: setup
+        if: steps.tooling-cache.outputs.cache-hit != 'true'
+        with:
+          ghc-version: ${{ matrix.ghc-version }}
+          cabal-version: ${{ matrix.cabal-version }}
+
+      # Generate Plan
+      - name: Configure the Build
+        run: |
+          rm cabal.project.freeze
+          cabal configure --enable-tests
+          cabal build --dry-run
+
+      # Restore cache
+      - name: Restore cached dependencies
+        uses: actions/cache/restore@v3
+        id: cache
+        env:
+          key: ${{ runner.os }}-ghc-${{ steps.setup.outputs.ghc-version }}-cabal-${{ steps.setup.outputs.cabal-version }}
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ env.key }}-plan-${{ hashFiles('**/plan.json') }}
+
+      # Build deps (for caching)
+      - name: Cabal build dependencies
+        run: cabal build all --only-dependencies
+
+      # Save dependency cache
+      - name: Save cache
+        uses: actions/cache/save@v3
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      # Cabal build
+      - name: Cabal Bulid
+        run: |
+          cabal build all
+
+      # Cabal tests
+      - name: Cabal Test
+        run: |
+          cabal test all
+
+  build-lower-bounds:
+    name: Haskell Build (lower bounds)
+    runs-on: ubuntu-latest # or macOS-latest, or windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc-version: ['9.0.2']
+        cabal-version: ['3.8.1.0']
+    steps:
+      # Checkout
+      - uses: actions/checkout@v3
+
+      # Setup
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        id: setup
+        if: steps.tooling-cache.outputs.cache-hit != 'true'
+        with:
+          ghc-version: ${{ matrix.ghc-version }}
+          cabal-version: ${{ matrix.cabal-version }}
+
+      # Generate Plan
+      - name: Configure the Build
+        run: |
+          (cat << EOF
+          packages: .
+          constraints:
+            aeson == 2.0.3.0,
+            base == 4.15.1.0,
+            binary == 0.8.8.0,
+            bytestring == 0.10.12.1,
+            containers == 0.6.4.1,
+            data-default-class == 0.1.2.0,
+            data-dword == 0.3.2.1,
+            exceptions == 0.10.4,
+            hspec == 2.8.5,
+            monad-logger == 0.3.36,
+            mtl == 2.2.2,
+            transformers == 0.5.6.2
+          EOF
+          ) > cabal.project
+          rm cabal.project.freeze
+          cabal configure --enable-tests
+          cabal build --dry-run
+
+      # Restore cache
+      - name: Restore cached dependencies
+        uses: actions/cache/restore@v3
+        id: cache
+        env:
+          key: ${{ runner.os }}-ghc-${{ steps.setup.outputs.ghc-version }}-cabal-${{ steps.setup.outputs.cabal-version }}
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ env.key }}-plan-${{ hashFiles('**/plan.json') }}
+
+      # Build deps (for caching)
+      - name: Cabal build dependencies
+        run: cabal build all --only-dependencies
+
+      # Save dependency cache
+      - name: Save cache
+        uses: actions/cache/save@v3
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      # Cabal Build
+      - name: Cabal Bulid
+        run: cabal build all
+
+      # Cabal Test
+      - name: Cabal Test
+        run: cabal test all
+
+
+

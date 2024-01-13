@@ -1265,9 +1265,8 @@ reduce
   -> (EventFold o p e, Map (EventId p) (Output e))
 reduce
     infState
-    baseEF
   =
-    go baseEF
+    go
   where
     go
       :: EventFold o p e
@@ -1296,7 +1295,7 @@ reduce
                   psEvents = newDeltas,
                   psUnjoins = dropObsoleteUnjoins eid psUnjoins
                 }
-            | isRenegade eid -> {- This is a renegade event. Ignore it. -}
+            | isRenegade eid ef -> {- This is a renegade event. Ignore it. -}
                 go ef {
                   psEvents = newDeltas,
                   psUnjoins = dropObsoleteUnjoins eid psUnjoins
@@ -1417,8 +1416,10 @@ reduce
       the cluster ejected a peer that later reappears on the network,
       broadcasting updates.
     -}
-    isRenegade BottomEid = False
-    isRenegade (Eid _ p) = not (p `member` participants (psInfimum baseEF))
+    isRenegade :: EventId p -> EventFold o p e -> Bool
+    isRenegade BottomEid _ = False
+    isRenegade (Eid _ p) ef =
+      not (p `member` participants (psInfimum ef))
 
 
 {- |

@@ -106,7 +106,7 @@ module Data.CRDT.EventFold (
     >   -> [a]           -- Analogous to all outstanding or future calls to
     >                    -- 'event'.
     >
-    >   -> b             
+    >   -> b
   -}
   -- * Basic API
   -- ** Creating new CRDTs
@@ -175,12 +175,17 @@ module Data.CRDT.EventFold (
 import Control.Exception (Exception)
 import Data.Aeson (FromJSON(parseJSON), ToJSON(toEncoding, toJSON),
   FromJSONKey, ToJSONKey)
-import Data.Bifunctor (first)
+import Data.Bifunctor (Bifunctor(first))
 import Data.Binary (Binary(get, put))
 import Data.Default.Class (Default(def))
 import Data.Map (Map, toAscList, toDescList, unionWith)
 import Data.Set ((\\), Set, member, union)
 import GHC.Generics (Generic)
+import Prelude (Applicative(pure), Bool(False, True), Either(Left, Right),
+  Enum(succ), Eq((/=), (==)), Foldable(foldr, maximum), Functor(fmap),
+  Maybe(Just, Nothing), Monoid(mempty), Ord((<), (<=), compare, max),
+  Semigroup((<>)), ($), (.), (<$>), (||), Num, Show, const, fst, id,
+  not, otherwise, snd)
 import Type.Reflection (Typeable)
 import qualified Data.DoubleWord as DW
 import qualified Data.Map as Map
@@ -411,18 +416,18 @@ instance (Event p a, Event p b) => Event p (Either a b) where
   type Output (Either a b) = Either (Output a) (Output b)
   type State (Either a b) = (State a, State b)
 
-  apply (Left e) (a, b) = 
+  apply (Left e) (a, b) =
     case apply @p e a of
       SystemError o -> SystemError (Left o)
       Pure o s -> Pure (Left o) (s, b)
-  apply (Right e) (a, b) = 
+  apply (Right e) (a, b) =
     case apply @p e b of
       SystemError o -> SystemError (Right o)
       Pure o s -> Pure (Right o) (a, s)
 
   join p (a, b) =
     (join @p @a p a, join @p @b p b)
-  
+
   unjoin p (a, b) =
     (unjoin @p @a p a, unjoin @p @b p b)
 
@@ -894,7 +899,10 @@ acknowledge p ef =
 
 
 {- | Internal version of 'acknowledge'. -}
-acknowledge_ :: (Event p e, Ord p)
+acknowledge_
+  :: ( Event p e
+     , Ord p
+     )
   => p
   -> EventFold o p e
   -> (EventFold o p e, Map (EventId p) (Output e))
@@ -916,7 +924,10 @@ acknowledge_ p ef =
 
 
 {- | Acknowledge the reduction error, if one exists. -}
-ackErr :: (Event p e, Ord p)
+ackErr
+  :: ( Event p e
+     , Ord p
+     )
   => p
   -> EventFold o p e
   -> (EventFold o p e, Map (EventId p) (Output e))
@@ -942,7 +953,11 @@ ackErr p ef =
   'EventId' is so that you can use it to tell when the participation
   event has reached the infimum. See also: 'infimumId'
 -}
-participate :: forall o p e. (Ord p, Event p e)
+participate
+  :: forall o p e.
+     ( Event p e
+     , Ord p
+     )
   => p {- ^ The local participant. -}
   -> p {- ^ The participant being added. -}
   -> EventFold o p e
@@ -965,7 +980,7 @@ participate self peer ef =
         UpdateResult {
           urEventFold = ef2,
           urOutputs = outputs,
-          {- 
+          {-
             By definition, we have added some new information that
             needs propagating.
           -}
@@ -981,7 +996,11 @@ participate self peer ef =
   Indicate that a participant is removing itself from participating in
   the distributed 'EventFold'.
 -}
-disassociate :: forall o p e. (Event p e, Ord p)
+disassociate
+  :: forall o p e.
+     ( Event p e
+     , Ord p
+     )
   => p {- ^ The peer removing itself from participation. -}
   -> EventFold o p e
   -> (EventId p, UpdateResult o p e)
@@ -1004,7 +1023,7 @@ disassociate peer ef =
         UpdateResult {
           urEventFold = ef2,
           urOutputs = outputs,
-          {- 
+          {-
             By definition, we have added some new information that
             needs propagating.
           -}
@@ -1246,9 +1265,8 @@ reduce
   -> (EventFold o p e, Map (EventId p) (Output e))
 reduce
     infState
-    baseEF
   =
-    go baseEF
+    go
   where
     go
       :: EventFold o p e
@@ -1277,7 +1295,7 @@ reduce
                   psEvents = newDeltas,
                   psUnjoins = dropObsoleteUnjoins eid psUnjoins
                 }
-            | isRenegade eid -> {- This is a renegade event. Ignore it. -}
+            | isRenegade eid ef -> {- This is a renegade event. Ignore it. -}
                 go ef {
                   psEvents = newDeltas,
                   psUnjoins = dropObsoleteUnjoins eid psUnjoins
@@ -1398,8 +1416,10 @@ reduce
       the cluster ejected a peer that later reappears on the network,
       broadcasting updates.
     -}
-    isRenegade BottomEid = False
-    isRenegade (Eid _ p) = not (p `member` participants (psInfimum baseEF))
+    isRenegade :: EventId p -> EventFold o p e -> Bool
+    isRenegade BottomEid _ = False
+    isRenegade (Eid _ p) ef =
+      not (p `member` participants (psInfimum ef))
 
 
 {- |
@@ -1432,7 +1452,7 @@ nextId p EventFold {psInfimum = Infimum {eventId}, psEvents} =
   'SystemError', it needs to somehow arrange for remote copies to send
   full 'EventFold's, not just 'Diff's. A 'diffMerge' is not sufficient
   to get past the block. Only a 'fullMerge' will suffice.
-  
+
   If your system is not using 'SystemError' or else not using 'Diff's,
   then you don't ever need to worry about this function.
 -}

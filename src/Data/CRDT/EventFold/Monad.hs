@@ -20,13 +20,15 @@ import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Logger (MonadLogger, MonadLoggerIO)
 import Control.Monad.Reader (MonadReader(ask), ReaderT(runReaderT))
-import Control.Monad.State (MonadState(state), StateT, get, gets,
-  runStateT)
+import Control.Monad.State (MonadState(get, state), StateT(runStateT),
+  gets)
 import Control.Monad.Trans.Class (MonadTrans(lift))
-import Data.CRDT.EventFold (Event(Output), UpdateResult(UpdateResult),
-  Diff, EventFold, EventId, MergeError, urEventFold)
-import qualified Data.CRDT.EventFold as EF (diffMerge, disassociate,
-  event, fullMerge, participate)
+import Data.CRDT.EventFold (Event(Output), UpdateResult(UpdateResult,
+  urEventFold), Diff, EventFold, EventId, MergeError)
+import Prelude (Bool(False), Either(Left, Right), Monoid(mempty),
+  Semigroup((<>)), ($), (.), (<$>), (=<<), (||), Applicative, Eq, Functor,
+  Monad, Ord, flip, id)
+import qualified Data.CRDT.EventFold as EF
 
 
 {- |
@@ -172,5 +174,5 @@ runEventFoldT
 runEventFoldT self ef =
   flip runReaderT self
   . flip runStateT (UpdateResult ef mempty False)
-  . unEventFoldT 
+  . unEventFoldT
 

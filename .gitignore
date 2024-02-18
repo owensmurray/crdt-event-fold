@@ -3,3 +3,4 @@
 /cabal.project.local
 /.tags.lock
 /tags
+*.full-imports

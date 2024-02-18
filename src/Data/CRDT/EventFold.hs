@@ -590,11 +590,11 @@ events peer ef =
 
 
 {- | A package containing events that can be merged into an event fold. -}
-data Diff o p e = Diff {
-     diffEvents :: Map (EventId p) (Maybe (Delta p e), Set p),
-     diffOrigin :: o,
-    diffInfimum :: EventId p,
-    diffUnjoins :: Set (EventId p)
+data Diff o p e = Diff
+  {  diffEvents :: Map (EventId p) (Maybe (Delta p e), Set p)
+  ,  diffOrigin :: o
+  , diffInfimum :: EventId p
+  , diffUnjoins :: Set (EventId p)
   }
   deriving stock (Generic)
 deriving stock instance (Eq o, Eq p, Eq e, Eq (Output e)) => Eq (Diff o p e)

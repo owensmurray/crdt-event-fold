@@ -139,6 +139,7 @@ module Data.CRDT.EventFold (
   fullMerge_,
   UpdateResult(..),
   events,
+  diffSize,
   diffMerge,
   diffMerge_,
   MergeError(..),
@@ -184,8 +185,8 @@ import GHC.Generics (Generic)
 import Prelude (Applicative(pure), Bool(False, True), Either(Left, Right),
   Enum(succ), Eq((/=), (==)), Foldable(foldr, maximum), Functor(fmap),
   Maybe(Just, Nothing), Monoid(mempty), Ord((<), (<=), compare, max),
-  Semigroup((<>)), ($), (.), (<$>), (||), Num, Show, const, fst, id,
-  not, otherwise, snd)
+  Semigroup((<>)), ($), (.), (<$>), (||), Int, Num, Show, const, fst,
+  id, not, otherwise, snd)
 import Type.Reflection (Typeable)
 import qualified Data.DoubleWord as DW
 import qualified Data.Map as Map
@@ -608,6 +609,16 @@ instance (
     Binary o, Binary p, Binary e, Binary (Output e)
   ) =>
     Binary (Diff o p e)
+
+
+{-|
+  Return the number of events contained in the diff. This information
+  might be useful for optimizing performance by, for instance, choosing to
+  use `diffMerge` instead of `fullMerge` when the diff is small or zero.
+-}
+diffSize :: Diff o p e -> Int
+diffSize Diff { diffEvents } =
+  Map.size diffEvents
 
 
 {- |

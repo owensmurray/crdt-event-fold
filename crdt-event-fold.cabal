@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                crdt-event-fold
-version:             1.8.1.0
+version:             1.8.1.1
 synopsis:            Garbage collected event folding CRDT.
 description:         Garbage collected event folding CRDT. Consistently
                      apply arbitrary operations to replicated data.
